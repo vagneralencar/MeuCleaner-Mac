@@ -496,6 +496,233 @@ public struct UpdatableApp: Identifiable, Hashable, Sendable {
     }
 }
 
+// MARK: - Channel 08: Dev & IA Cleaner Models
+
+public enum DevArtifactCategory: String, CaseIterable, Identifiable, Sendable {
+    case all = "Todos"
+    case nodeModules = "Node.js (node_modules / .next)"
+    case pythonVenv = "Python (.venv / venv)"
+    case rustSwiftBuild = "Rust & Swift (target / .build)"
+    case aiModels = "Modelos de IA (Ollama / HuggingFace / LM Studio)"
+
+    public var id: String { rawValue }
+
+    public var symbol: String {
+        switch self {
+        case .all: return "square.stack.3d.up.fill"
+        case .nodeModules: return "shippingbox.fill"
+        case .pythonVenv: return "terminal.fill"
+        case .rustSwiftBuild: return "hammer.fill"
+        case .aiModels: return "brain.head.profile"
+        }
+    }
+}
+
+public struct DevArtifactItem: Identifiable, Hashable, Sendable {
+    public let id: UUID
+    public let url: URL
+    public let projectName: String
+    public let artifactFolderName: String
+    public let category: DevArtifactCategory
+    public let sizeBytes: Int64
+    public let lastModified: Date
+    public var isSelected: Bool
+
+    public init(
+        id: UUID = UUID(),
+        url: URL,
+        projectName: String,
+        artifactFolderName: String,
+        category: DevArtifactCategory,
+        sizeBytes: Int64,
+        lastModified: Date,
+        isSelected: Bool? = nil
+    ) {
+        self.id = id
+        self.url = url
+        self.projectName = projectName
+        self.artifactFolderName = artifactFolderName
+        self.category = category
+        self.sizeBytes = sizeBytes
+        self.lastModified = lastModified
+        let days = max(0, Calendar.current.dateComponents([.day], from: lastModified, to: Date()).day ?? 0)
+        // Automatically pre-select build artifacts older than 30 days, but never pre-select AI models
+        if let explicit = isSelected {
+            self.isSelected = explicit
+        } else {
+            self.isSelected = (category != .aiModels) && (days >= 30)
+        }
+    }
+
+    public var daysInactive: Int {
+        max(0, Calendar.current.dateComponents([.day], from: lastModified, to: Date()).day ?? 0)
+    }
+}
+
+// MARK: - Channel 09: Startup & LaunchAgents Models
+
+public enum StartupAgentScope: String, CaseIterable, Identifiable, Sendable {
+    case userAgent = "Agente do Usuário (~/Library/LaunchAgents)"
+    case globalAgent = "Agente Global (/Library/LaunchAgents)"
+    case systemDaemon = "Daemon do Sistema (/Library/LaunchDaemons)"
+
+    public var id: String { rawValue }
+
+    public var shortBadge: String {
+        switch self {
+        case .userAgent: return "Usuário"
+        case .globalAgent: return "Global"
+        case .systemDaemon: return "Daemon"
+        }
+    }
+}
+
+public struct StartupAgentItem: Identifiable, Hashable, Sendable {
+    public let id: UUID
+    public let plistURL: URL
+    public let label: String
+    public let programPath: String
+    public let scope: StartupAgentScope
+    public let runAtLoad: Bool
+    public let keepAlive: Bool
+    public let sizeBytes: Int64
+    public var isLoadedInLaunchd: Bool
+
+    public init(
+        id: UUID = UUID(),
+        plistURL: URL,
+        label: String,
+        programPath: String,
+        scope: StartupAgentScope,
+        runAtLoad: Bool,
+        keepAlive: Bool,
+        sizeBytes: Int64,
+        isLoadedInLaunchd: Bool
+    ) {
+        self.id = id
+        self.plistURL = plistURL
+        self.label = label
+        self.programPath = programPath
+        self.scope = scope
+        self.runAtLoad = runAtLoad
+        self.keepAlive = keepAlive
+        self.sizeBytes = sizeBytes
+        self.isLoadedInLaunchd = isLoadedInLaunchd
+    }
+
+    public var inferredVendorName: String {
+        let parts = label.split(separator: ".").map(String.init)
+        if parts.count >= 2 {
+            let vendor = parts[1]
+            return vendor.prefix(1).uppercased() + vendor.dropFirst()
+        }
+        return label
+    }
+}
+
+// MARK: - Channel 10: Smart Duplicates Models
+
+public struct DuplicateFileEntry: Identifiable, Hashable, Sendable {
+    public let id: UUID
+    public let url: URL
+    public let name: String
+    public let modifiedDate: Date
+    public var isSelectedForRemoval: Bool
+
+    public init(
+        id: UUID = UUID(),
+        url: URL,
+        name: String,
+        modifiedDate: Date,
+        isSelectedForRemoval: Bool = false
+    ) {
+        self.id = id
+        self.url = url
+        self.name = name
+        self.modifiedDate = modifiedDate
+        self.isSelectedForRemoval = isSelectedForRemoval
+    }
+}
+
+public struct DuplicateGroup: Identifiable, Hashable, Sendable {
+    public let id: UUID
+    public let hashHex: String
+    public let eachFileSizeBytes: Int64
+    public var files: [DuplicateFileEntry]
+
+    public init(
+        id: UUID = UUID(),
+        hashHex: String,
+        eachFileSizeBytes: Int64,
+        files: [DuplicateFileEntry]
+    ) {
+        self.id = id
+        self.hashHex = hashHex
+        self.eachFileSizeBytes = eachFileSizeBytes
+        self.files = files
+    }
+
+    public var selectedReclaimableBytes: Int64 {
+        Int64(files.filter(\.isSelectedForRemoval).count) * eachFileSizeBytes
+    }
+
+    public var maxReclaimableBytes: Int64 {
+        Int64(max(0, files.count - 1)) * eachFileSizeBytes
+    }
+}
+
+// MARK: - Trash App Watcher Alert (Vigia da Lixeira)
+
+public struct TrashedAppAlert: Identifiable, Hashable, Sendable {
+    public let id: UUID
+    public let trashedAppURL: URL
+    public let appName: String
+    public let bundleIdentifier: String
+    public let leftoverFiles: [AppRelatedFile]
+
+    public init(
+        id: UUID = UUID(),
+        trashedAppURL: URL,
+        appName: String,
+        bundleIdentifier: String,
+        leftoverFiles: [AppRelatedFile]
+    ) {
+        self.id = id
+        self.trashedAppURL = trashedAppURL
+        self.appName = appName
+        self.bundleIdentifier = bundleIdentifier
+        self.leftoverFiles = leftoverFiles
+    }
+
+    public var totalLeftoversBytes: Int64 {
+        leftoverFiles.reduce(0) { $0 + $1.sizeBytes }
+    }
+}
+
+// MARK: - Cleanup History Record
+
+public struct CleanupHistoryRecord: Identifiable, Codable, Hashable, Sendable {
+    public let id: UUID
+    public let date: Date
+    public let channelTitle: String
+    public let freedBytes: Int64
+    public let itemsCount: Int
+
+    public init(
+        id: UUID = UUID(),
+        date: Date = Date(),
+        channelTitle: String,
+        freedBytes: Int64,
+        itemsCount: Int
+    ) {
+        self.id = id
+        self.date = date
+        self.channelTitle = channelTitle
+        self.freedBytes = freedBytes
+        self.itemsCount = itemsCount
+    }
+}
+
 // MARK: - Byte Formatting Helper
 
 public enum ByteFormatter {

@@ -36,15 +36,65 @@ public final class DiskScannerService: ObservableObject {
     // Channel 07: App Updater
     @Published public var updatableApps: [UpdatableApp] = []
     @Published public var isScanningUpdates: Bool = false
+    @Published public var updatingAppIDs: Set<UUID> = []
+
+    // Channel 08: Dev & IA Cleaner
+    @Published public var devArtifacts: [DevArtifactItem] = []
+    @Published public var isScanningDevArtifacts: Bool = false
+
+    // Channel 09: Startup & LaunchAgents
+    @Published public var startupAgents: [StartupAgentItem] = []
+    @Published public var isScanningStartupAgents: Bool = false
+
+    // Channel 10: Smart Duplicates
+    @Published public var duplicateGroups: [DuplicateGroup] = []
+    @Published public var isScanningDuplicates: Bool = false
+
+    // Vigia da Lixeira (Trash App Watcher) & History
+    @Published public var trashedAppAlerts: [TrashedAppAlert] = []
+    @Published public var trashWatcherEnabled: Bool = true
+    @Published public var cleanupHistory: [CleanupHistoryRecord] = []
 
     // Status Banner / Feedback
     @Published public var lastStatusMessage: String?
     @Published public var hasFullDiskAccess: Bool = SafetyGuard.hasFullDiskAccess()
 
-    public init() {}
+    private static let historyDefaultsKey = "MeuCleaner.CleanupHistory.v1"
+
+    public init() {
+        loadCleanupHistory()
+    }
 
     public func refreshFullDiskAccessStatus() {
         hasFullDiskAccess = SafetyGuard.hasFullDiskAccess()
+    }
+
+    public var totalLifetimeFreedBytes: Int64 {
+        cleanupHistory.reduce(0) { $0 + $1.freedBytes }
+    }
+
+    public func recordCleanupHistory(channelTitle: String, freedBytes: Int64, itemsCount: Int) {
+        guard freedBytes > 0 else { return }
+        let entry = CleanupHistoryRecord(
+            channelTitle: channelTitle,
+            freedBytes: freedBytes,
+            itemsCount: max(1, itemsCount)
+        )
+        cleanupHistory.insert(entry, at: 0)
+        if cleanupHistory.count > 100 {
+            cleanupHistory = Array(cleanupHistory.prefix(100))
+        }
+        if let data = try? JSONEncoder().encode(cleanupHistory) {
+            UserDefaults.standard.set(data, forKey: Self.historyDefaultsKey)
+        }
+    }
+
+    private func loadCleanupHistory() {
+        guard let data = UserDefaults.standard.data(forKey: Self.historyDefaultsKey),
+              let decoded = try? JSONDecoder().decode([CleanupHistoryRecord].self, from: data) else {
+            return
+        }
+        cleanupHistory = decoded
     }
 
     // MARK: - Computed Totals
@@ -97,6 +147,7 @@ public final class DiskScannerService: ObservableObject {
         isScanningLeftovers = false
         isScanningTrash = false
         lastScanDurationSeconds = max(0.1, CFAbsoluteTimeGetCurrent() - start)
+        await checkTrashedAppsForLeftovers()
     }
 
     // MARK: - Channel 01: System Junk (CleanerCore.JunkRule.defaults)
@@ -127,6 +178,7 @@ public final class DiskScannerService: ObservableObject {
         }
 
         junkItems.removeAll { removedIDs.contains($0.id) }
+        recordCleanupHistory(channelTitle: "Lixo do Sistema", freedBytes: cleanedBytes, itemsCount: removedIDs.count)
         await scanTrash()
         lastStatusMessage = mode == .trash
             ? "Prontinho! \(ByteFormatter.string(from: cleanedBytes)) foram para a Lixeira."
@@ -424,6 +476,7 @@ public final class DiskScannerService: ObservableObject {
         }
         largeFiles.removeAll { removed.contains($0.id) }
         if cleaned > 0 {
+            recordCleanupHistory(channelTitle: "Grandes e Antigos", freedBytes: cleaned, itemsCount: removed.count)
             await scanTrash()
             lastStatusMessage = "Movidos \(ByteFormatter.string(from: cleaned)) de arquivos grandes para a Lixeira."
         }
@@ -515,6 +568,7 @@ public final class DiskScannerService: ObservableObject {
             _ = try SafetyGuard.remove(app.bundleURL, mode: removalMode)
             totalRemoved += app.appSizeBytes
             installedApps.removeAll { $0.id == app.id }
+            recordCleanupHistory(channelTitle: "Desinstalador (\(app.name))", freedBytes: totalRemoved, itemsCount: 1 + app.relatedFiles.count)
             await scanTrash()
             lastStatusMessage = "\(app.name) e seus restos (\(ByteFormatter.string(from: totalRemoved))) foram movidos para a Lixeira."
             return true
@@ -546,6 +600,7 @@ public final class DiskScannerService: ObservableObject {
 
         leftoverGroups.removeAll { removedGroupIDs.contains($0.id) }
         if cleaned > 0 {
+            recordCleanupHistory(channelTitle: "Restos de Apps", freedBytes: cleaned, itemsCount: removedGroupIDs.count)
             await scanTrash()
             lastStatusMessage = "Restos de apps (\(ByteFormatter.string(from: cleaned))) movidos para a Lixeira."
         }
@@ -758,6 +813,7 @@ public final class DiskScannerService: ObservableObject {
         let items = await Self.scanTrashOffMain()
         trashItems = items
         isScanningTrash = false
+        await checkTrashedAppsForLeftovers()
     }
 
     public func emptyTrashPermanently() async {

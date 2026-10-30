@@ -13,6 +13,7 @@ public struct UninstallerChannelView: View {
     @State private var searchText: String = ""
     @State private var sortOption: AppSortOption = .size
     @State private var selectedAppID: UUID? = nil
+    @State private var isDropTargeted: Bool = false
 
     public init(scanner: DiskScannerService) {
         self.scanner = scanner
@@ -60,6 +61,36 @@ public struct UninstallerChannelView: View {
                     Task { await scanner.scanAppsAndLeftovers() }
                 }
             )
+
+            // Vigia da Lixeira (Trash App Watcher) Alert Banner
+            ForEach(scanner.trashedAppAlerts) { alert in
+                GlassCard(padding: 12, cornerRadius: 12) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "bell.badge.fill")
+                            .font(.title3)
+                            .foregroundStyle(.orange)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Vigia da Lixeira: \(alert.appName) foi apagado no Finder!")
+                                .font(.subheadline.weight(.bold))
+                            Text("Encontramos \(alert.leftoverFiles.count) restos (\(ByteFormatter.string(from: alert.totalLeftoversBytes))) de \(alert.appName) que ficaram para trás na ~/Library.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Spacer()
+
+                        Button {
+                            Task { await scanner.cleanTrashedAppLeftovers(alert) }
+                        } label: {
+                            Label("Limpar Restos (\(ByteFormatter.string(from: alert.totalLeftoversBytes)))", systemImage: "sparkles")
+                                .font(.caption.weight(.semibold))
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.orange)
+                    }
+                }
+            }
 
             HStack(spacing: 12) {
                 HStack(spacing: 8) {
@@ -326,9 +357,26 @@ public struct UninstallerChannelView: View {
                 }
             }
 
-            SafetyNoticePill(text: "Apps abertos pedem para encerrar primeiro. Desinstalar envia o app e seus arquivos marcados para a Lixeira.")
+            SafetyNoticePill(text: "Dica Pro: Arraste qualquer .app do Finder para cá para inspecionar e desinstalar com todos os restos da Library.")
         }
         .padding(24)
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(isDropTargeted ? Color.red : Color.clear, style: StrokeStyle(lineWidth: 3, dash: [8]))
+                .padding(8)
+        )
+        .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
+            guard let first = providers.first else { return false }
+            _ = first.loadObject(ofClass: URL.self) { url, _ in
+                guard let droppedURL = url else { return }
+                Task { @MainActor in
+                    if let newID = await scanner.inspectDroppedApp(at: droppedURL) {
+                        selectedAppID = newID
+                    }
+                }
+            }
+            return true
+        }
         .task {
             if scanner.installedApps.isEmpty && !scanner.isScanningApps {
                 await scanner.scanAppsAndLeftovers()

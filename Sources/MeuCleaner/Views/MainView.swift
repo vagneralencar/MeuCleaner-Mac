@@ -36,8 +36,16 @@ public struct MainView: View {
                     }
 
                     VStack(alignment: .leading, spacing: 1) {
-                        Text("MeuCleaner")
-                            .font(.system(size: 15, weight: .bold, design: .rounded))
+                        HStack(spacing: 5) {
+                            Text("MeuCleaner")
+                                .font(.system(size: 15, weight: .bold, design: .rounded))
+                            Text("PRO")
+                                .font(.system(size: 9, weight: .heavy, design: .monospaced))
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 1)
+                                .background(Color.cyan.opacity(0.2), in: Capsule())
+                                .foregroundStyle(.cyan)
+                        }
                         Text("macOS Native Cleaner")
                             .font(.system(size: 10, weight: .medium))
                             .foregroundStyle(.secondary)
@@ -48,11 +56,11 @@ public struct MainView: View {
                 .padding(.top, 12)
                 .padding(.bottom, 10)
 
-                // Channels 00–07 List
+                // Channels 00–10 List
                 List(CleanerChannel.allCases, selection: $selectedChannel) { channel in
                     HStack(spacing: 10) {
                         Image(systemName: channel.symbol)
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(selectedChannel == channel ? .white : channel.accentColor)
                             .frame(width: 24, height: 24)
                             .background(
@@ -60,18 +68,26 @@ public struct MainView: View {
                                     .fill(selectedChannel == channel ? channel.accentColor : channel.accentColor.opacity(0.14))
                             )
 
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(channel.title)
-                                .font(.system(size: 13, weight: .medium))
-                        }
+                        Text(channel.title)
+                            .font(.system(size: 13, weight: .medium))
+                            .lineLimit(1)
 
                         Spacer()
+
+                        if channel.isProDifferentiator {
+                            Text("PRO")
+                                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 1)
+                                .background(channel.accentColor.opacity(0.18), in: Capsule())
+                                .foregroundStyle(channel.accentColor)
+                        }
 
                         Text(channel.code)
                             .font(.system(size: 10, weight: .bold, design: .monospaced))
                             .foregroundStyle(.secondary)
                     }
-                    .padding(.vertical, 3)
+                    .padding(.vertical, 2)
                     .tag(channel)
                 }
                 .listStyle(.sidebar)
@@ -98,7 +114,12 @@ public struct MainView: View {
                         Spacer()
                         Text("RAM \(Int(monitor.memoryPressurePercent))%")
                         Spacer()
-                        Text("⌘0–⌘7")
+                        SettingsLink {
+                            Label("Ajustes", systemImage: "gearshape")
+                                .font(.system(size: 10, weight: .semibold))
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
                     }
                     .font(.system(size: 10, weight: .medium, design: .monospaced))
                     .foregroundStyle(.secondary)
@@ -106,7 +127,7 @@ public struct MainView: View {
                 .padding(14)
                 .background(.ultraThinMaterial)
             }
-            .navigationSplitViewColumnWidth(min: 225, ideal: 240, max: 270)
+            .navigationSplitViewColumnWidth(min: 235, ideal: 250, max: 280)
         } detail: {
             ZStack(alignment: .bottom) {
                 Group {
@@ -131,6 +152,12 @@ public struct MainView: View {
                         TrashChannelView(scanner: scanner)
                     case .appUpdater:
                         AppUpdaterChannelView(scanner: scanner)
+                    case .devAndAI:
+                        DevAndAIChannelView(scanner: scanner)
+                    case .startupItems:
+                        StartupItemsChannelView(scanner: scanner)
+                    case .duplicates:
+                        DuplicatesChannelView(scanner: scanner)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)

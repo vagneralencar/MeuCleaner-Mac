@@ -73,4 +73,41 @@ final class MeuCleanerTests: XCTestCase {
         XCTAssertFalse(AppVersion.isNewer("1.2.0", than: "1.2.0"))
         XCTAssertFalse(AppVersion.isNewer("1.1.9", than: "1.2.0"))
     }
+
+    func testDevArtifactSelectionRules() {
+        let fortyDaysAgo = Calendar.current.date(byAdding: .day, value: -40, to: Date()) ?? Date()
+        let oldNodeModules = DevArtifactItem(
+            url: URL(fileURLWithPath: "/tmp/proj/node_modules"),
+            projectName: "proj",
+            artifactFolderName: "node_modules",
+            category: .nodeModules,
+            sizeBytes: 100_000_000,
+            lastModified: fortyDaysAgo
+        )
+        XCTAssertTrue(oldNodeModules.isSelected, "node_modules inativo há > 30 dias deve vir pré-marcado")
+
+        let aiModel = DevArtifactItem(
+            url: URL(fileURLWithPath: "/tmp/.ollama/models"),
+            projectName: "Ollama",
+            artifactFolderName: "models",
+            category: .aiModels,
+            sizeBytes: 4_000_000_000,
+            lastModified: fortyDaysAgo
+        )
+        XCTAssertFalse(aiModel.isSelected, "Modelos de IA nunca devem vir pré-marcados automaticamente")
+    }
+
+    func testDuplicateGroupReclaimableCalculation() {
+        let group = DuplicateGroup(
+            hashHex: "abc123def456",
+            eachFileSizeBytes: 10_000_000,
+            files: [
+                DuplicateFileEntry(url: URL(fileURLWithPath: "/tmp/a.dmg"), name: "a.dmg", modifiedDate: Date(), isSelectedForRemoval: false),
+                DuplicateFileEntry(url: URL(fileURLWithPath: "/tmp/b.dmg"), name: "b.dmg", modifiedDate: Date(), isSelectedForRemoval: true),
+                DuplicateFileEntry(url: URL(fileURLWithPath: "/tmp/c.dmg"), name: "c.dmg", modifiedDate: Date(), isSelectedForRemoval: true)
+            ]
+        )
+        XCTAssertEqual(group.maxReclaimableBytes, 20_000_000)
+        XCTAssertEqual(group.selectedReclaimableBytes, 20_000_000)
+    }
 }

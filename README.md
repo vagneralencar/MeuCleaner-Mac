@@ -72,7 +72,18 @@ Arrastar um aplicativo para a Lixeira deixa preferências, caches, containers e 
 | **04** | `⌘4` | **Desinstalador** | Remove aplicativos junto com todos os arquivos que espalharam na `~/Library`. Detecta apps abertos e oferece botão para encerrá-los antes. |
 | **05** | `⌘5` | **Restos de Apps** | Encontra pastas órfãs na `~/Library` de apps que já foram apagados no passado. Nada vem marcado por padrão. |
 | **06** | `⌘6` | **Lixeira** | Lista os itens na Lixeira do macOS (`~/.Trash`) e exige **segurar o botão até encher** para esvaziar permanentemente. |
-| **07** | `⌘7` | **Atualizador de Apps** | Busca atualizações em 3 fontes: **Homebrew Cask**, feeds **Sparkle (`SUFeedURL`)** e **Mac App Store Lookup API**. |
+| **07** | `⌘7` | **Atualizador de Apps** | Busca e instala atualizações em 1 clique via **Homebrew Cask**, feeds **Sparkle (`SUFeedURL`)** e **Mac App Store Lookup API**. |
+| **08** | `⌘8` | **Dev & IA Cleaner (PRO)** | Encontra `node_modules`, `.next`, `.venv`, `target` e `.build` de projetos inativos, modelos locais de IA (**Ollama**, **Hugging Face**, **LM Studio**) e limpa simuladores antigos do Xcode. |
+| **09** | `⌘9` | **Inicialização & Daemons (PRO)** | Gerencia `LaunchAgents` e `LaunchDaemons` ocultos em background com ativação/pausa via `launchctl`. |
+| **10** | `⌘D` | **Arquivos Duplicados (PRO)** | Caçador ultrarrápido em 3 estágios (`Tamanho` → `Hash Parcial 64 KB` → `SHA-256`) com botão *Manter Apenas o Mais Recente*. |
+
+---
+
+## 🚀 Diferenciais Exclusivos (Pro Suite)
+
+- **👻 Vigia da Lixeira (Trash Watcher)**: Detecta automaticamente quando você joga um `.app` na Lixeira pelo Finder e exibe um alerta imediato caso aquele aplicativo tenha deixado restos órfãos na `~/Library`.
+- **🎯 Drop Zone de Desinstalação**: Arraste qualquer `.app` do Finder diretamente para a janela do Desinstalador para mapear todos os arquivos vinculados na `~/Library`.
+- **📊 Histórico Acumulado e Janela de Ajustes (`⌘,`)**: Registra quantos GBs você já liberou neste Mac ao longo do tempo e permite configurar o destino padrão da limpeza.
 
 ---
 

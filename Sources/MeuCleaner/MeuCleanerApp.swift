@@ -18,10 +18,10 @@ public struct MeuCleanerApp: App {
                 monitor: monitor,
                 selectedChannel: $selectedChannel
             )
-            .frame(minWidth: 960, minHeight: 640)
+            .frame(minWidth: 980, minHeight: 660)
         }
         .windowToolbarStyle(.unified)
-        .defaultSize(width: 1100, height: 740)
+        .defaultSize(width: 1120, height: 760)
         .commands {
             CommandMenu("Canais") {
                 ForEach(CleanerChannel.allCases) { channel in
@@ -31,6 +31,10 @@ public struct MeuCleanerApp: App {
                     .keyboardShortcut(channel.shortcutKey, modifiers: [.command])
                 }
             }
+        }
+
+        Settings {
+            SettingsView(scanner: scanner)
         }
 
         MenuBarExtra {

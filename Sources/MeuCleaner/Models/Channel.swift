@@ -9,6 +9,9 @@ public enum CleanerChannel: Int, CaseIterable, Identifiable, Hashable {
     case leftovers = 5
     case trash = 6
     case appUpdater = 7
+    case devAndAI = 8
+    case startupItems = 9
+    case duplicates = 10
 
     public var id: Int { rawValue }
 
@@ -26,19 +29,25 @@ public enum CleanerChannel: Int, CaseIterable, Identifiable, Hashable {
         case .leftovers: return "Restos de Apps"
         case .trash: return "Lixeira"
         case .appUpdater: return "Atualizador de Apps"
+        case .devAndAI: return "Dev & IA Cleaner"
+        case .startupItems: return "Inicialização & Daemons"
+        case .duplicates: return "Arquivos Duplicados"
         }
     }
 
     public var subtitle: String {
         switch self {
-        case .home: return "Resumo rápido do seu Mac, lixo seguro para limpar e espaço livre"
+        case .home: return "Resumo rápido do seu Mac, lixo seguro para limpar, espaço livre e histórico"
         case .systemJunk: return "Caches de apps, logs, Xcode DerivedData, npm, pnpm, bun, Cargo e Gradle"
         case .spaceLens: return "Mapa visual do seu disco em anéis interativos por nível de pasta"
         case .largeAndOld: return "Arquivos enormes e esquecidos filtrados por tipo e idade"
-        case .uninstaller: return "Desinstale aplicativos junto com tudo o que espalharam na Library"
+        case .uninstaller: return "Desinstale apps junto com tudo na Library (suporta Drag & Drop de .app)"
         case .leftovers: return "Arquivos órfãos na Library deixados por apps que você já apagou"
         case .trash: return "Veja o que pesa na Lixeira do macOS e esvazie com segurança"
-        case .appUpdater: return "Atualizações via Homebrew e Sparkle em um só lugar"
+        case .appUpdater: return "Atualizações em 1 clique via Homebrew, Sparkle e App Store"
+        case .devAndAI: return "node_modules, .venv, target/build de projetos inativos e modelos de IA (Ollama/HF)"
+        case .startupItems: return "Gerencie LaunchAgents e Daemons ocultos que iniciam junto com o Mac"
+        case .duplicates: return "Caçador ultrarrápido de arquivos idênticos em 3 estágios (SHA-256)"
         }
     }
 
@@ -52,6 +61,9 @@ public enum CleanerChannel: Int, CaseIterable, Identifiable, Hashable {
         case .leftovers: return "puzzlepiece.extension.fill"
         case .trash: return "trash.fill"
         case .appUpdater: return "arrow.triangle.2.circlepath.circle.fill"
+        case .devAndAI: return "cpu.fill"
+        case .startupItems: return "bolt.horizontal.circle.fill"
+        case .duplicates: return "doc.on.doc.fill"
         }
     }
 
@@ -65,6 +77,9 @@ public enum CleanerChannel: Int, CaseIterable, Identifiable, Hashable {
         case .leftovers: return .indigo
         case .trash: return .pink
         case .appUpdater: return .green
+        case .devAndAI: return .mint
+        case .startupItems: return .yellow
+        case .duplicates: return .teal
         }
     }
 
@@ -78,6 +93,18 @@ public enum CleanerChannel: Int, CaseIterable, Identifiable, Hashable {
         case .leftovers: return "5"
         case .trash: return "6"
         case .appUpdater: return "7"
+        case .devAndAI: return "8"
+        case .startupItems: return "9"
+        case .duplicates: return "d"
+        }
+    }
+
+    public var isProDifferentiator: Bool {
+        switch self {
+        case .devAndAI, .startupItems, .duplicates:
+            return true
+        default:
+            return false
         }
     }
 }

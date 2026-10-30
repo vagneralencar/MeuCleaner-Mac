@@ -7,17 +7,53 @@ public struct AppUpdaterChannelView: View {
         self.scanner = scanner
     }
 
+    private var activeUpdatesCount: Int {
+        scanner.updatableApps.filter { !$0.isSkipped }.count
+    }
+
     public var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             ChannelHeaderView(
                 channel: .appUpdater,
-                trailingBadgeText: "\(scanner.updatableApps.count) verificados",
+                trailingBadgeText: "\(activeUpdatesCount) disponíveis",
                 actionTitle: scanner.isScanningUpdates ? "Verificando..." : "Buscar Atualizações",
                 isLoading: scanner.isScanningUpdates,
                 onAction: {
                     Task { await scanner.scanForAppUpdates() }
                 }
             )
+
+            if activeUpdatesCount > 0 {
+                GlassCard(padding: 14, cornerRadius: 14) {
+                    HStack {
+                        Image(systemName: "arrow.down.circle.fill")
+                            .font(.title2)
+                            .foregroundStyle(.green)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("\(activeUpdatesCount) atualizações prontas para instalar")
+                                .font(.subheadline.weight(.bold))
+                            Text("Instala pacotes via Homebrew Cask automaticamente e abre atualizadores Sparkle/App Store.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Spacer()
+
+                        Button {
+                            Task { await scanner.installAllAppUpdates() }
+                        } label: {
+                            Label("Atualizar Tudo (\(activeUpdatesCount))", systemImage: "bolt.fill")
+                                .fontWeight(.semibold)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.green)
+                        .disabled(!scanner.updatingAppIDs.isEmpty)
+                    }
+                }
+            }
 
             if scanner.isScanningUpdates {
                 Spacer()
@@ -26,7 +62,7 @@ public struct AppUpdaterChannelView: View {
                     VStack(spacing: 12) {
                         ProgressView()
                             .controlSize(.large)
-                        Text("Consultando Homebrew Casks e feeds Sparkle dos seus aplicativos...")
+                        Text("Consultando Homebrew Casks, Mac App Store Lookup API e feeds Sparkle...")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
@@ -36,15 +72,17 @@ public struct AppUpdaterChannelView: View {
             } else if scanner.updatableApps.isEmpty {
                 Spacer()
                 ContentUnavailableView(
-                    "Seus apps estão em dia",
+                    "Tudo em dia!",
                     systemImage: "checkmark.seal.fill",
-                    description: Text("Clique em Buscar Atualizações para consultar o Homebrew e feeds Sparkle dos apps instalados.")
+                    description: Text("Nenhum aplicativo tem versão mais nova pendente no Homebrew, Sparkle ou App Store.")
                 )
                 Spacer()
             } else {
                 ScrollView {
                     LazyVStack(spacing: 10) {
                         ForEach(scanner.updatableApps) { item in
+                            let isUpdating = scanner.updatingAppIDs.contains(item.id)
+
                             GlassCard(padding: 14, cornerRadius: 14) {
                                 HStack(alignment: .top, spacing: 14) {
                                     if let bundleURL = item.bundleURL {
@@ -86,23 +124,29 @@ public struct AppUpdaterChannelView: View {
                                     Spacer()
 
                                     HStack(spacing: 8) {
-                                        Button(item.isSkipped ? "Reativar" : "Pular versão") {
+                                        Button(item.isSkipped ? "Reativar" : "Ignorar versão") {
                                             scanner.toggleSkipUpdate(for: item.id)
                                         }
                                         .buttonStyle(.bordered)
                                         .controlSize(.small)
 
-                                        if let bundleURL = item.bundleURL {
-                                            Button("Abrir App") {
-                                                NSWorkspace.shared.openApplication(
-                                                    at: bundleURL,
-                                                    configuration: NSWorkspace.OpenConfiguration()
-                                                )
+                                        Button {
+                                            Task { await scanner.installAppUpdate(item) }
+                                        } label: {
+                                            HStack(spacing: 6) {
+                                                if isUpdating {
+                                                    ProgressView()
+                                                        .controlSize(.small)
+                                                } else {
+                                                    Image(systemName: "arrow.down.circle.fill")
+                                                }
+                                                Text(isUpdating ? "Atualizando..." : "Atualizar")
                                             }
-                                            .buttonStyle(.borderedProminent)
-                                            .tint(.green)
-                                            .controlSize(.small)
                                         }
+                                        .buttonStyle(.borderedProminent)
+                                        .tint(.green)
+                                        .controlSize(.small)
+                                        .disabled(isUpdating || item.isSkipped)
                                     }
                                 }
                             }
@@ -112,14 +156,11 @@ public struct AppUpdaterChannelView: View {
                 }
             }
 
-            SafetyNoticePill(text: "Fontes suportadas: feeds Sparkle (SUFeedURL) e pacotes Homebrew Cask instalados localmente.")
+            SafetyNoticePill(text: "Fontes suportadas em tempo real: Homebrew Cask (brew upgrade), feeds XML Sparkle (SUFeedURL) e Mac App Store Lookup API.")
         }
         .padding(24)
         .task {
             if scanner.updatableApps.isEmpty && !scanner.isScanningUpdates {
-                if scanner.installedApps.isEmpty {
-                    await scanner.scanAppsAndLeftovers()
-                }
                 await scanner.scanForAppUpdates()
             }
         }

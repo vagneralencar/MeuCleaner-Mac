@@ -38,6 +38,31 @@ public struct HomeChannelView: View {
                     }
                 )
 
+                // Vigia da Lixeira Live Banner on Home
+                ForEach(scanner.trashedAppAlerts) { alert in
+                    GlassCard(padding: 14, cornerRadius: 14) {
+                        HStack(spacing: 12) {
+                            Image(systemName: "bell.badge.fill")
+                                .font(.title2)
+                                .foregroundStyle(.orange)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Vigia da Lixeira: \(alert.appName) deixou \(ByteFormatter.string(from: alert.totalLeftoversBytes)) na Library")
+                                    .font(.subheadline.weight(.bold))
+                                Text("Você apagou o app no Finder, mas ainda restam \(alert.leftoverFiles.count) pastas órfãs.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button("Limpar Restos Agora") {
+                                Task { await scanner.cleanTrashedAppLeftovers(alert) }
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(.orange)
+                            .controlSize(.small)
+                        }
+                    }
+                }
+
                 // Hero Smart Summary Card
                 GlassCard(padding: 20, cornerRadius: 18) {
                     HStack(spacing: 24) {
@@ -78,6 +103,14 @@ public struct HomeChannelView: View {
                                         .padding(.vertical, 3)
                                         .background(.blue.opacity(0.14), in: Capsule())
                                         .foregroundStyle(.blue)
+                                }
+                                if scanner.totalLifetimeFreedBytes > 0 {
+                                    Text("Já liberado: \(ByteFormatter.string(from: scanner.totalLifetimeFreedBytes))")
+                                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 3)
+                                        .background(.green.opacity(0.16), in: Capsule())
+                                        .foregroundStyle(.green)
                                 }
                             }
 
@@ -203,9 +236,30 @@ public struct HomeChannelView: View {
 
                     QuickChannelRowCard(
                         channel: .appUpdater,
-                        badge: "Homebrew & Sparkle"
+                        badge: "Homebrew, Sparkle & MAS"
                     ) {
                         selectedChannel = .appUpdater
+                    }
+
+                    QuickChannelRowCard(
+                        channel: .devAndAI,
+                        badge: "PRO · node_modules & IA"
+                    ) {
+                        selectedChannel = .devAndAI
+                    }
+
+                    QuickChannelRowCard(
+                        channel: .startupItems,
+                        badge: "PRO · LaunchAgents"
+                    ) {
+                        selectedChannel = .startupItems
+                    }
+
+                    QuickChannelRowCard(
+                        channel: .duplicates,
+                        badge: "PRO · SHA-256"
+                    ) {
+                        selectedChannel = .duplicates
                     }
                 }
 
