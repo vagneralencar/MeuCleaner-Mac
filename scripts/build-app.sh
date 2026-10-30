@@ -2,6 +2,8 @@
 set -euo pipefail
 
 APP_NAME="MeuCleaner"
+VERSION="1.1.0"
+BUILD_NUMBER="2"
 BUILD_DIR="$(pwd)/build"
 APP_BUNDLE="${BUILD_DIR}/${APP_NAME}.app"
 CONTENTS_DIR="${APP_BUNDLE}/Contents"
@@ -50,9 +52,9 @@ cat > "${CONTENTS_DIR}/Info.plist" <<EOF
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0.0</string>
+    <string>${VERSION}</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>${BUILD_NUMBER}</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
     <key>NSHighResolutionCapable</key>
@@ -62,5 +64,15 @@ cat > "${CONTENTS_DIR}/Info.plist" <<EOF
 EOF
 
 touch "${APP_BUNDLE}"
+
+ZIP_PATH="${BUILD_DIR}/${APP_NAME}-${VERSION}.zip"
+DMG_PATH="${BUILD_DIR}/${APP_NAME}-${VERSION}.dmg"
+rm -f "${ZIP_PATH}" "${DMG_PATH}"
+
+echo "📦 Gerando pacotes de release (${VERSION})..."
+ditto -c -k --keepParent "${APP_BUNDLE}" "${ZIP_PATH}"
+hdiutil create -volname "${APP_NAME} ${VERSION}" -srcfolder "${APP_BUNDLE}" -ov -format UDZO "${DMG_PATH}" >/dev/null
+
 echo "✅ Bundle criado com ícone em: ${APP_BUNDLE}"
+echo "✅ Pacotes gerados: ${ZIP_PATH} e ${DMG_PATH}"
 echo "Para abrir: open \"${APP_BUNDLE}\""

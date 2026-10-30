@@ -70,6 +70,16 @@ public struct SettingsView: View {
                 }
 
                 Spacer()
+
+                HStack {
+                    Text("MeuCleaner Pro v1.1.0 (Build 2)")
+                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text("Safe by default · 100% Local")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
             .padding(20)
             .tabItem {
