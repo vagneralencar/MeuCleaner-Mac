@@ -3,6 +3,7 @@ import Foundation
 public enum SafetyViolationError: LocalizedError {
     case protectedSystemPath(String)
     case protectedUserDataPath(String)
+    case protectedSecurityCredentials(String)
     case outsideCurrentUserHome(String)
     case selfApplicationProtected(String)
 
@@ -12,6 +13,8 @@ public enum SafetyViolationError: LocalizedError {
             return "Caminho protegido do sistema, não será removido: \(path)"
         case .protectedUserDataPath(let path):
             return "Caminho protegido (Documentos, Chaves, Fotos, Mail, Mensagens, CloudStorage ou iCloud), não será removido: \(path)"
+        case .protectedSecurityCredentials(let path):
+            return "Arquivo de segurança protegido (Chaves SSH, GPG, tokens AWS/Cloud ou variáveis de ambiente): \(path)"
         case .outsideCurrentUserHome(let path):
             return "Não é permitido alterar pastas de outros usuários: \(path)"
         case .selfApplicationProtected(let path):
@@ -50,7 +53,14 @@ public struct SafetyGuard {
             "\(home)/Library/Messages",
             "\(home)/Library/Mobile Documents", // iCloud Drive
             "\(home)/Library/CloudStorage",     // FileProvider Cloud mounts (Google Drive, Dropbox, OneDrive)
-            "\(home)/Pictures/Photos Library.photoslibrary"
+            "\(home)/Pictures/Photos Library.photoslibrary",
+            "\(home)/.ssh",
+            "\(home)/.gnupg",
+            "\(home)/.aws",
+            "\(home)/.azure",
+            "\(home)/.config/gcloud",
+            "\(home)/.kube",
+            "\(home)/.password-store"
         ]
     }
 
@@ -65,40 +75,70 @@ public struct SafetyGuard {
         "cloudkit"
     ]
 
+    /// Sensitive file names that should never be deleted by automated cleaner tasks
+    public static let protectedFileNames: Set<String> = [
+        ".env",
+        ".env.local",
+        ".env.production",
+        ".env.staging",
+        ".env.development",
+        "id_rsa",
+        "id_rsa.pub",
+        "id_ed25519",
+        "id_ed25519.pub",
+        "id_ecdsa",
+        "id_ecdsa.pub",
+        "id_dsa",
+        "id_dsa.pub",
+        "authorized_keys",
+        "known_hosts"
+    ]
+
     /// Validates whether a URL is safe to remove or move to the Trash.
     public static func validateCanMoveToTrash(_ url: URL) throws {
-        let standardized = url.standardizedFileURL.resolvingSymlinksInPath()
-        let path = standardized.path
+        let rawStandardized = url.standardizedFileURL
+        let rawPath = rawStandardized.path
+        let resolvedPath = rawStandardized.resolvingSymlinksInPath().path
 
-        // 1. Protect MeuCleaner itself
+        // Check for sensitive credential and environment files
+        let fileName = url.lastPathComponent.lowercased()
+        if protectedFileNames.contains(fileName) || fileName.hasPrefix(".env.") {
+            throw SafetyViolationError.protectedSecurityCredentials(rawPath)
+        }
+
         let appBundlePath = Bundle.main.bundleURL.standardizedFileURL.path
-        if path == appBundlePath || path.lowercased().contains("meucleaner.app") {
-            throw SafetyViolationError.selfApplicationProtected(path)
-        }
 
-        // 2. Check forbidden system roots
-        if path == "/" || path == "/Applications" || path == "/Users" || path == "/Library" {
-            throw SafetyViolationError.protectedSystemPath(path)
-        }
-        for prefix in forbiddenSystemPrefixes {
-            if path == prefix || path.hasPrefix(prefix + "/") {
+        // Validate both the raw path and resolved symlink path to prevent symlink traversal attacks
+        for path in [rawPath, resolvedPath] {
+            // 1. Protect MeuCleaner itself
+            if path == appBundlePath || path.lowercased().contains("meucleaner.app") {
+                throw SafetyViolationError.selfApplicationProtected(path)
+            }
+
+            // 2. Check forbidden system roots
+            if path == "/" || path == "/Applications" || path == "/Users" || path == "/Library" {
                 throw SafetyViolationError.protectedSystemPath(path)
             }
-        }
-
-        // 3. Allow /Applications/<SpecificApp>.app for the Uninstaller, otherwise require user's home folder
-        let isThirdPartyAppInApplications = path.hasPrefix("/Applications/") && path.hasSuffix(".app")
-        let homePath = homeDirectoryURL.path
-        if !isThirdPartyAppInApplications {
-            if path == homePath || !path.hasPrefix(homePath + "/") {
-                throw SafetyViolationError.outsideCurrentUserHome(path)
+            for prefix in forbiddenSystemPrefixes {
+                if path == prefix || path.hasPrefix(prefix + "/") {
+                    throw SafetyViolationError.protectedSystemPath(path)
+                }
             }
-        }
 
-        // 4. Protect critical user directories (Documents, Keychains, Mail, Messages, Photos Library, iCloud Drive, CloudStorage)
-        for protectedPath in protectedUserPaths {
-            if path == protectedPath || path.hasPrefix(protectedPath + "/") {
-                throw SafetyViolationError.protectedUserDataPath(path)
+            // 3. Allow /Applications/<SpecificApp>.app for the Uninstaller, otherwise require user's home folder
+            let isThirdPartyAppInApplications = path.hasPrefix("/Applications/") && path.hasSuffix(".app")
+            let homePath = homeDirectoryURL.path
+            if !isThirdPartyAppInApplications {
+                if path == homePath || !path.hasPrefix(homePath + "/") {
+                    throw SafetyViolationError.outsideCurrentUserHome(path)
+                }
+            }
+
+            // 4. Protect critical user directories (Documents, Keychains, Mail, Messages, Photos Library, iCloud, SSH, AWS, etc.)
+            for protectedPath in protectedUserPaths {
+                if path == protectedPath || path.hasPrefix(protectedPath + "/") {
+                    throw SafetyViolationError.protectedUserDataPath(path)
+                }
             }
         }
     }

@@ -27,9 +27,18 @@ public enum RemovalMode: String, CaseIterable, Identifiable, Sendable {
 // MARK: - Semantic Version Comparator (CleanerCore.AppVersion)
 
 public enum AppVersion {
+    /// Strips leading 'v' or 'V' and trims whitespace/newlines for reliable semantic comparison.
+    public static func normalize(_ version: String) -> String {
+        var clean = version.trimmingCharacters(in: .whitespacesAndNewlines)
+        if clean.lowercased().hasPrefix("v") {
+            clean.removeFirst()
+        }
+        return clean.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     public static func isNewer(_ candidate: String, than current: String) -> Bool {
-        let cleanCandidate = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cleanCurrent = current.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanCandidate = normalize(candidate)
+        let cleanCurrent = normalize(current)
         guard !cleanCandidate.isEmpty, !cleanCurrent.isEmpty, cleanCandidate != cleanCurrent else {
             return false
         }
@@ -699,7 +708,32 @@ public struct TrashedAppAlert: Identifiable, Hashable, Sendable {
     }
 }
 
-// MARK: - Cleanup History Record
+// MARK: - Cleanup History & Undo Receipts
+
+public struct TrashReceipt: Identifiable, Sendable {
+    public let id: UUID
+    public let originalURL: URL
+    public let trashURL: URL
+    public let date: Date
+    public let sizeBytes: Int64
+    public let channelTitle: String
+
+    public init(
+        id: UUID = UUID(),
+        originalURL: URL,
+        trashURL: URL,
+        date: Date = Date(),
+        sizeBytes: Int64,
+        channelTitle: String
+    ) {
+        self.id = id
+        self.originalURL = originalURL
+        self.trashURL = trashURL
+        self.date = date
+        self.sizeBytes = sizeBytes
+        self.channelTitle = channelTitle
+    }
+}
 
 public struct CleanupHistoryRecord: Identifiable, Codable, Hashable, Sendable {
     public let id: UUID

@@ -3,11 +3,17 @@ import SwiftUI
 public struct MenuBarPopoverView: View {
     @ObservedObject public var monitor: SystemMonitorService
     @ObservedObject public var scanner: DiskScannerService
+    @ObservedObject public var updater: SelfUpdaterService
     @Environment(\.openWindow) private var openWindow
 
-    public init(monitor: SystemMonitorService, scanner: DiskScannerService) {
+    public init(
+        monitor: SystemMonitorService,
+        scanner: DiskScannerService,
+        updater: SelfUpdaterService
+    ) {
         self.monitor = monitor
         self.scanner = scanner
+        self.updater = updater
     }
 
     public var body: some View {
@@ -28,6 +34,24 @@ public struct MenuBarPopoverView: View {
                     .padding(.vertical, 2)
                     .background(.green.opacity(0.18), in: Capsule())
                     .foregroundStyle(.green)
+            }
+
+            if let update = updater.availableUpdate {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.down.circle.fill")
+                        .foregroundStyle(.green)
+                    Text("Atualização v\(update.version) pronta")
+                        .font(.caption.weight(.bold))
+                    Spacer()
+                    Button("Instalar") {
+                        Task { await updater.downloadAndInstallUpdate() }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.mini)
+                    .tint(.green)
+                }
+                .padding(8)
+                .background(Color.green.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
             }
 
             // Metrics Grid: CPU, RAM, Disk, Battery & Network
@@ -146,6 +170,13 @@ public struct MenuBarPopoverView: View {
         }
         .padding(14)
         .frame(width: 320)
+        .onAppear {
+            monitor.isPopoverActive = true
+            monitor.refreshAll(forceHeavyTasks: true)
+        }
+        .onDisappear {
+            monitor.isPopoverActive = false
+        }
     }
 }
 

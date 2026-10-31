@@ -98,6 +98,7 @@ public struct HoldToConfirmButton: View {
                     holdTimer = nil
                     isPressing = false
                     progress = 0.0
+                    NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
                     onConfirmed()
                 }
             }

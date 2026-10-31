@@ -72,6 +72,37 @@ final class MeuCleanerTests: XCTestCase {
         XCTAssertTrue(AppVersion.isNewer("2.0", than: "1.9.9"))
         XCTAssertFalse(AppVersion.isNewer("1.2.0", than: "1.2.0"))
         XCTAssertFalse(AppVersion.isNewer("1.1.9", than: "1.2.0"))
+
+        // Prefix "v" normalization
+        XCTAssertTrue(AppVersion.isNewer("v1.2.0", than: "1.1.0"))
+        XCTAssertFalse(AppVersion.isNewer("v1.1.0", than: "1.2.0"))
+        XCTAssertEqual(AppVersion.normalize(" v2.3.4 \n"), "2.3.4")
+    }
+
+    func testSafetyGuardBlocksCredentialsAndEnvFiles() {
+        let credentialURLs: [URL] = [
+            SafetyGuard.homeDirectoryURL.appendingPathComponent(".ssh/id_rsa"),
+            SafetyGuard.homeDirectoryURL.appendingPathComponent(".ssh/authorized_keys"),
+            SafetyGuard.homeDirectoryURL.appendingPathComponent(".aws/credentials"),
+            SafetyGuard.homeDirectoryURL.appendingPathComponent(".gnupg/secring.gpg"),
+            SafetyGuard.homeDirectoryURL.appendingPathComponent("Projects/MyProject/.env"),
+            SafetyGuard.homeDirectoryURL.appendingPathComponent("Projects/MyProject/.env.local"),
+            SafetyGuard.homeDirectoryURL.appendingPathComponent("Projects/MyProject/.env.production")
+        ]
+
+        for url in credentialURLs {
+            XCTAssertThrowsError(try SafetyGuard.validateCanMoveToTrash(url), "Deveria bloquear arquivo/pasta sensível de credencial: \(url.path)")
+        }
+    }
+
+    @MainActor
+    func testSelfUpdaterServiceInitialization() {
+        let updater = SelfUpdaterService()
+        XCTAssertFalse(updater.isChecking)
+        XCTAssertFalse(updater.isDownloading)
+        XCTAssertNil(updater.availableUpdate)
+        XCTAssertEqual(SelfUpdaterService.repositoryOwner, "vagneralencar")
+        XCTAssertEqual(SelfUpdaterService.repositoryName, "MeuCleaner-Mac")
     }
 
     func testDevArtifactSelectionRules() {

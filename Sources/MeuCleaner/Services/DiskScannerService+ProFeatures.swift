@@ -34,15 +34,29 @@ extension DiskScannerService {
         let selected = devArtifacts.filter(\.isSelected)
         var cleaned: Int64 = 0
         var removed = Set<UUID>()
+        var newReceipts: [TrashReceipt] = []
 
         for item in selected {
             do {
-                _ = try SafetyGuard.remove(item.url, mode: removalMode)
+                if let trashedURL = try SafetyGuard.remove(item.url, mode: removalMode) {
+                    newReceipts.append(
+                        TrashReceipt(
+                            originalURL: item.url,
+                            trashURL: trashedURL,
+                            sizeBytes: item.sizeBytes,
+                            channelTitle: "Dev & IA Cleaner"
+                        )
+                    )
+                }
                 cleaned += item.sizeBytes
                 removed.insert(item.id)
             } catch {
                 lastStatusMessage = error.localizedDescription
             }
+        }
+
+        if removalMode == .trash && !newReceipts.isEmpty {
+            lastTrashReceipts = newReceipts
         }
 
         devArtifacts.removeAll { removed.contains($0.id) }

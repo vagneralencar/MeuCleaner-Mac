@@ -129,12 +129,22 @@ public struct DuplicatesChannelView: View {
                                                 .foregroundStyle(.secondary)
 
                                             Button {
+                                                NSWorkspace.shared.open(file.url)
+                                            } label: {
+                                                Image(systemName: "eye")
+                                                    .font(.caption2)
+                                            }
+                                            .buttonStyle(.borderless)
+                                            .help("Abrir ou pré-visualizar cópia")
+
+                                            Button {
                                                 NSWorkspace.shared.activateFileViewerSelecting([file.url])
                                             } label: {
                                                 Image(systemName: "magnifyingglass")
                                                     .font(.caption2)
                                             }
                                             .buttonStyle(.borderless)
+                                            .help("Revelar no Finder")
                                         }
                                     }
                                 }

@@ -54,6 +54,7 @@ public final class DiskScannerService: ObservableObject {
     @Published public var trashedAppAlerts: [TrashedAppAlert] = []
     @Published public var trashWatcherEnabled: Bool = true
     @Published public var cleanupHistory: [CleanupHistoryRecord] = []
+    @Published public var lastTrashReceipts: [TrashReceipt] = []
 
     // Status Banner / Feedback
     @Published public var lastStatusMessage: String?
@@ -161,20 +162,38 @@ public final class DiskScannerService: ObservableObject {
         lastScanDurationSeconds = max(0.1, CFAbsoluteTimeGetCurrent() - start)
     }
 
+    public var canUndoLastCleanup: Bool {
+        !lastTrashReceipts.isEmpty
+    }
+
     public func cleanSelectedJunk() async -> Int64 {
         let selected = junkItems.filter(\.isSelected)
         let mode = removalMode
         var cleanedBytes: Int64 = 0
         var removedIDs = Set<UUID>()
+        var newReceipts: [TrashReceipt] = []
 
         for item in selected {
             do {
-                _ = try SafetyGuard.remove(item.url, mode: mode)
+                if let trashedURL = try SafetyGuard.remove(item.url, mode: mode) {
+                    newReceipts.append(
+                        TrashReceipt(
+                            originalURL: item.url,
+                            trashURL: trashedURL,
+                            sizeBytes: item.sizeBytes,
+                            channelTitle: "Lixo do Sistema"
+                        )
+                    )
+                }
                 cleanedBytes += item.sizeBytes
                 removedIDs.insert(item.id)
             } catch {
                 continue
             }
+        }
+
+        if mode == .trash && !newReceipts.isEmpty {
+            lastTrashReceipts = newReceipts
         }
 
         junkItems.removeAll { removedIDs.contains($0.id) }
@@ -184,6 +203,31 @@ public final class DiskScannerService: ObservableObject {
             ? "Prontinho! \(ByteFormatter.string(from: cleanedBytes)) foram para a Lixeira."
             : "Prontinho! \(ByteFormatter.string(from: cleanedBytes)) apagados permanentemente."
         return cleanedBytes
+    }
+
+    public func undoLastCleanup() async {
+        guard !lastTrashReceipts.isEmpty else { return }
+        let fm = FileManager.default
+        var restoredCount = 0
+        var restoredBytes: Int64 = 0
+
+        for receipt in lastTrashReceipts {
+            if fm.fileExists(atPath: receipt.trashURL.path) {
+                let parentDir = receipt.originalURL.deletingLastPathComponent()
+                try? fm.createDirectory(at: parentDir, withIntermediateDirectories: true)
+                do {
+                    try fm.moveItem(at: receipt.trashURL, to: receipt.originalURL)
+                    restoredCount += 1
+                    restoredBytes += receipt.sizeBytes
+                } catch {
+                    // Item could not be moved or destination already occupied
+                }
+            }
+        }
+
+        lastTrashReceipts.removeAll()
+        await scanTrash()
+        lastStatusMessage = "\(restoredCount) item(ns) restaurados com sucesso para a pasta original (\(ByteFormatter.string(from: restoredBytes)))."
     }
 
     private nonisolated static func scanSystemJunkOffMain() async -> [JunkItem] {

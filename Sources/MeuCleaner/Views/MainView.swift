@@ -3,15 +3,18 @@ import SwiftUI
 public struct MainView: View {
     @ObservedObject public var scanner: DiskScannerService
     @ObservedObject public var monitor: SystemMonitorService
+    @ObservedObject public var updater: SelfUpdaterService
     @Binding public var selectedChannel: CleanerChannel
 
     public init(
         scanner: DiskScannerService,
         monitor: SystemMonitorService,
+        updater: SelfUpdaterService,
         selectedChannel: Binding<CleanerChannel>
     ) {
         self.scanner = scanner
         self.monitor = monitor
+        self.updater = updater
         self._selectedChannel = selectedChannel
     }
 
@@ -129,76 +132,137 @@ public struct MainView: View {
             }
             .navigationSplitViewColumnWidth(min: 235, ideal: 250, max: 280)
         } detail: {
-            ZStack(alignment: .bottom) {
-                Group {
-                    switch selectedChannel {
-                    case .home:
-                        HomeChannelView(
-                            scanner: scanner,
-                            monitor: monitor,
-                            selectedChannel: $selectedChannel
-                        )
-                    case .systemJunk:
-                        SystemJunkChannelView(scanner: scanner)
-                    case .spaceLens:
-                        SpaceLensChannelView(scanner: scanner)
-                    case .largeAndOld:
-                        LargeAndOldChannelView(scanner: scanner)
-                    case .uninstaller:
-                        UninstallerChannelView(scanner: scanner)
-                    case .leftovers:
-                        LeftoversChannelView(scanner: scanner)
-                    case .trash:
-                        TrashChannelView(scanner: scanner)
-                    case .appUpdater:
-                        AppUpdaterChannelView(scanner: scanner)
-                    case .devAndAI:
-                        DevAndAIChannelView(scanner: scanner)
-                    case .startupItems:
-                        StartupItemsChannelView(scanner: scanner)
-                    case .duplicates:
-                        DuplicatesChannelView(scanner: scanner)
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(
-                    LinearGradient(
-                        colors: [
-                            selectedChannel.accentColor.opacity(0.05),
-                            Color(nsColor: .windowBackgroundColor)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-
-                // Toast Notification Banner when an action finishes
-                if let status = scanner.lastStatusMessage {
-                    HStack(spacing: 10) {
-                        Image(systemName: "checkmark.circle.fill")
+            VStack(spacing: 0) {
+                if let update = updater.availableUpdate {
+                    HStack(spacing: 12) {
+                        Image(systemName: "sparkles")
+                            .font(.headline)
                             .foregroundStyle(.green)
-                        Text(status)
-                            .font(.caption.weight(.semibold))
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("Nova versão v\(update.version) do MeuCleaner disponível!")
+                                .font(.subheadline.weight(.bold))
+                            Text(update.title)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                        Spacer()
                         Button {
-                            withAnimation {
-                                scanner.lastStatusMessage = nil
-                            }
+                            Task { await updater.downloadAndInstallUpdate() }
                         } label: {
-                            Image(systemName: "xmark.circle.fill")
+                            Label(
+                                updater.isInstalling ? "Instalando..." : (updater.isDownloading ? "Baixando \(Int(updater.downloadProgress * 100))%..." : "Atualizar Agora"),
+                                systemImage: "bolt.fill"
+                            )
+                            .font(.caption.weight(.bold))
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.green)
+                        .controlSize(.small)
+                        .disabled(updater.isDownloading || updater.isInstalling)
+
+                        Button {
+                            withAnimation { updater.availableUpdate = nil }
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.caption2)
                                 .foregroundStyle(.secondary)
                         }
                         .buttonStyle(.plain)
                     }
                     .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(.regularMaterial, in: Capsule())
-                    .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
-                    .padding(.bottom, 16)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .padding(.vertical, 8)
+                    .background(Color.green.opacity(0.12))
+                    .overlay(Rectangle().frame(height: 1).foregroundStyle(Color.green.opacity(0.25)), alignment: .bottom)
+                }
+
+                ZStack(alignment: .bottom) {
+                    Group {
+                        switch selectedChannel {
+                        case .home:
+                            HomeChannelView(
+                                scanner: scanner,
+                                monitor: monitor,
+                                selectedChannel: $selectedChannel
+                            )
+                        case .systemJunk:
+                            SystemJunkChannelView(scanner: scanner)
+                        case .spaceLens:
+                            SpaceLensChannelView(scanner: scanner)
+                        case .largeAndOld:
+                            LargeAndOldChannelView(scanner: scanner)
+                        case .uninstaller:
+                            UninstallerChannelView(scanner: scanner)
+                        case .leftovers:
+                            LeftoversChannelView(scanner: scanner)
+                        case .trash:
+                            TrashChannelView(scanner: scanner)
+                        case .appUpdater:
+                            AppUpdaterChannelView(scanner: scanner)
+                        case .devAndAI:
+                            DevAndAIChannelView(scanner: scanner)
+                        case .startupItems:
+                            StartupItemsChannelView(scanner: scanner)
+                        case .duplicates:
+                            DuplicatesChannelView(scanner: scanner)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(
+                        LinearGradient(
+                            colors: [
+                                selectedChannel.accentColor.opacity(0.05),
+                                Color(nsColor: .windowBackgroundColor)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+
+                    // Toast Notification Banner when an action finishes
+                    if let status = scanner.lastStatusMessage {
+                        HStack(spacing: 10) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                            Text(status)
+                                .font(.caption.weight(.semibold))
+
+                            if scanner.canUndoLastCleanup {
+                                Button {
+                                    Task { await scanner.undoLastCleanup() }
+                                } label: {
+                                    Label("Desfazer", systemImage: "arrow.uturn.backward")
+                                        .font(.caption.weight(.bold))
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .controlSize(.mini)
+                                .tint(.blue)
+                            }
+
+                            Button {
+                                withAnimation {
+                                    scanner.lastStatusMessage = nil
+                                }
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .background(.regularMaterial, in: Capsule())
+                        .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
+                        .padding(.bottom, 16)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
                 }
             }
         }
         .task {
+            if updater.autoCheckOnLaunch {
+                await updater.checkForUpdates(silent: true)
+            }
             if scanner.junkItems.isEmpty && !scanner.isScanningJunk {
                 await scanner.runSmartScan()
             }

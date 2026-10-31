@@ -5,6 +5,7 @@ import AppKit
 public struct MeuCleanerApp: App {
     @StateObject private var scanner = DiskScannerService()
     @StateObject private var monitor = SystemMonitorService()
+    @StateObject private var updater = SelfUpdaterService()
     @State private var selectedChannel: CleanerChannel = .home
 
     public init() {
@@ -16,6 +17,7 @@ public struct MeuCleanerApp: App {
             MainView(
                 scanner: scanner,
                 monitor: monitor,
+                updater: updater,
                 selectedChannel: $selectedChannel
             )
             .frame(minWidth: 980, minHeight: 660)
@@ -34,11 +36,11 @@ public struct MeuCleanerApp: App {
         }
 
         Settings {
-            SettingsView(scanner: scanner)
+            SettingsView(scanner: scanner, updater: updater)
         }
 
         MenuBarExtra {
-            MenuBarPopoverView(monitor: monitor, scanner: scanner)
+            MenuBarPopoverView(monitor: monitor, scanner: scanner, updater: updater)
         } label: {
             HStack(spacing: 4) {
                 Image(systemName: "sparkles")

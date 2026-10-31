@@ -23,6 +23,7 @@ public final class SystemMonitorService: ObservableObject {
     @Published public var networkDownBytesPerSec: Int64 = 0
     @Published public var networkUpBytesPerSec: Int64 = 0
     @Published public var topMemoryApps: [RunningAppMemoryItem] = []
+    @Published public var isPopoverActive: Bool = false
 
     private var timer: Timer?
     private var prevNetInBytes: UInt64 = 0
@@ -32,7 +33,7 @@ public final class SystemMonitorService: ObservableObject {
     private var prevCPUInfoCount: mach_msg_type_number_t = 0
 
     public init() {
-        refreshAll()
+        refreshAll(forceHeavyTasks: true)
         startMonitoring()
     }
 
@@ -45,13 +46,18 @@ public final class SystemMonitorService: ObservableObject {
         }
     }
 
-    public func refreshAll() {
+    public func refreshAll(forceHeavyTasks: Bool = false) {
         updateDiskUsage()
         updateMemoryUsage()
         updateCPUUsage()
         updateBatteryStatus()
-        updateNetworkThroughput()
-        updateTopMemoryApps()
+
+        // Efficiency optimization: Only enumerate processes and calculate network throughput
+        // when the user has the MenuBar popover visible or explicit refresh is requested.
+        if isPopoverActive || forceHeavyTasks {
+            updateNetworkThroughput()
+            updateTopMemoryApps()
+        }
     }
 
     public var memoryPressurePercent: Double {

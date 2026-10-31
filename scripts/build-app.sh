@@ -2,8 +2,8 @@
 set -euo pipefail
 
 APP_NAME="MeuCleaner"
-VERSION="1.1.0"
-BUILD_NUMBER="2"
+VERSION="1.2.0"
+BUILD_NUMBER="3"
 BUILD_DIR="$(pwd)/build"
 APP_BUNDLE="${BUILD_DIR}/${APP_NAME}.app"
 CONTENTS_DIR="${APP_BUNDLE}/Contents"
@@ -64,6 +64,9 @@ cat > "${CONTENTS_DIR}/Info.plist" <<EOF
 EOF
 
 touch "${APP_BUNDLE}"
+
+echo "🔏 Assinando bundle (${APP_NAME})..."
+codesign --force --deep --sign - "${APP_BUNDLE}" 2>/dev/null || true
 
 ZIP_PATH="${BUILD_DIR}/${APP_NAME}-${VERSION}.zip"
 DMG_PATH="${BUILD_DIR}/${APP_NAME}-${VERSION}.dmg"

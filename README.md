@@ -15,7 +15,7 @@
 
 <p align="center">
   <a href="https://github.com/vagneralencar/MeuCleaner-Mac/releases/latest">
-    <img src="https://img.shields.io/badge/Release-v1.1.0%20Pro-AF52DE?style=for-the-badge&logo=github" alt="Release v1.1.0" />
+    <img src="https://img.shields.io/badge/Release-v1.2.0%20Pro-AF52DE?style=for-the-badge&logo=github" alt="Release v1.2.0" />
   </a>
   <img src="https://img.shields.io/badge/macOS-14.0%2B-0A84FF?style=for-the-badge&logo=apple&logoColor=white" alt="macOS 14+" />
   <img src="https://img.shields.io/badge/Swift-6.0-F05138?style=for-the-badge&logo=swift&logoColor=white" alt="Swift" />

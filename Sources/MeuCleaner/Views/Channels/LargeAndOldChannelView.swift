@@ -144,6 +144,15 @@ public struct LargeAndOldChannelView: View {
                                         .frame(width: 90, alignment: .trailing)
 
                                     Button {
+                                        NSWorkspace.shared.open(file.url)
+                                    } label: {
+                                        Image(systemName: "eye")
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.small)
+                                    .help("Pré-visualizar ou abrir arquivo")
+
+                                    Button {
                                         NSWorkspace.shared.activateFileViewerSelecting([file.url])
                                     } label: {
                                         Image(systemName: "magnifyingglass")
