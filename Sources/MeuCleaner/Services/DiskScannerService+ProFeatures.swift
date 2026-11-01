@@ -31,41 +31,9 @@ extension DiskScannerService {
     }
 
     public func cleanSelectedDevArtifacts() async -> Int64 {
-        let selected = devArtifacts.filter(\.isSelected)
-        var cleaned: Int64 = 0
-        var removed = Set<UUID>()
-        var newReceipts: [TrashReceipt] = []
-
-        for item in selected {
-            do {
-                if let trashedURL = try SafetyGuard.remove(item.url, mode: removalMode) {
-                    newReceipts.append(
-                        TrashReceipt(
-                            originalURL: item.url,
-                            trashURL: trashedURL,
-                            sizeBytes: item.sizeBytes,
-                            channelTitle: "Dev & IA Cleaner"
-                        )
-                    )
-                }
-                cleaned += item.sizeBytes
-                removed.insert(item.id)
-            } catch {
-                lastStatusMessage = error.localizedDescription
-            }
-        }
-
-        if removalMode == .trash && !newReceipts.isEmpty {
-            lastTrashReceipts = newReceipts
-        }
-
-        devArtifacts.removeAll { removed.contains($0.id) }
-        if cleaned > 0 {
-            recordCleanupHistory(channelTitle: "Dev & IA Cleaner", freedBytes: cleaned, itemsCount: removed.count)
-            await scanTrash()
-            lastStatusMessage = "Artefatos Dev/IA (\(ByteFormatter.string(from: cleaned))) enviados para a Lixeira."
-        }
-        return cleaned
+        await prepareFileReview(devArtifacts.filter(\.isSelected).map(\.url), title: "Arquivos de desenvolvimento",
+                                consequence: "Pode exigir novos downloads ou recompilação. Projetos e worktrees permanecem protegidos.")
+        return 0
     }
 
     public func inspectXcodeSimulators() async {
@@ -308,10 +276,31 @@ extension DiskScannerService {
     // MARK: - Channel 10: Smart Duplicates (3-Stage SHA-256 Pipeline)
 
     public func scanDuplicateFiles() async {
+        guard !isScanningDuplicates, !isCleaningJunk, !isRestoring else { return }
         isScanningDuplicates = true
-        let groups = await Self.scanDuplicatesOffMain()
-        duplicateGroups = groups
+        let result = await Task.detached(priority: .utility) {
+            BoundedFilesystemRead.run(key: "duplicate-file-scan", timeout: 45) { Self.scanDuplicatesOffMain() }
+        }.value
+        if let result {
+            duplicateGroups = result.groups
+            duplicateScanIssues = result.issues
+        } else {
+            duplicateGroups = []
+            duplicateScanIssues = ["A leitura não terminou no prazo ou ainda aguarda o macOS. Isso não significa que as pastas estejam vazias. Confira as permissões do MeuCleaner nos Ajustes do macOS e tente novamente."]
+        }
+        hasScannedDuplicates = true
         isScanningDuplicates = false
+    }
+
+    public func setDuplicateSelection(groupID: UUID, fileID: UUID, selected: Bool) {
+        guard let groupIndex = duplicateGroups.firstIndex(where: { $0.id == groupID }),
+              let fileIndex = duplicateGroups[groupIndex].files.firstIndex(where: { $0.id == fileID }) else { return }
+        if selected && !duplicateGroups[groupIndex].files[fileIndex].isSelectedForRemoval &&
+            duplicateGroups[groupIndex].files.filter({ !$0.isSelectedForRemoval }).count <= 1 {
+            lastStatusMessage = "Mantenha pelo menos uma cópia de cada grupo."
+            return
+        }
+        duplicateGroups[groupIndex].files[fileIndex].isSelectedForRemoval = selected
     }
 
     public func autoSelectDuplicatesKeepingNewest() {
@@ -326,39 +315,19 @@ extension DiskScannerService {
     }
 
     public func cleanSelectedDuplicates() async -> Int64 {
-        var cleaned: Int64 = 0
-        var cleanedCount = 0
-
-        for groupIdx in duplicateGroups.indices {
-            var remainingFiles: [DuplicateFileEntry] = []
-            let eachSize = duplicateGroups[groupIdx].eachFileSizeBytes
-            for file in duplicateGroups[groupIdx].files {
-                if file.isSelectedForRemoval {
-                    do {
-                        _ = try SafetyGuard.remove(file.url, mode: removalMode)
-                        cleaned += eachSize
-                        cleanedCount += 1
-                    } catch {
-                        remainingFiles.append(file)
-                    }
-                } else {
-                    remainingFiles.append(file)
-                }
-            }
-            duplicateGroups[groupIdx].files = remainingFiles
+        guard !duplicateGroups.contains(where: { !$0.files.isEmpty && $0.files.allSatisfy(\.isSelectedForRemoval) }) else {
+            lastStatusMessage = "Mantenha pelo menos uma cópia de cada grupo antes de revisar."
+            return 0
         }
-
-        duplicateGroups.removeAll { $0.files.count < 2 }
-        if cleaned > 0 {
-            recordCleanupHistory(channelTitle: "Arquivos Duplicados", freedBytes: cleaned, itemsCount: cleanedCount)
-            await scanTrash()
-            lastStatusMessage = "\(cleanedCount) cópias duplicadas (\(ByteFormatter.string(from: cleaned))) movidas para a Lixeira."
-        }
-        return cleaned
+        await prepareFileReview(duplicateGroups.flatMap { $0.files.filter(\.isSelectedForRemoval).map(\.url) }, title: "Cópias selecionadas",
+                                consequence: "Uma cópia escolhida será removida. Confirme quais arquivos deseja manter; igualdade não determina importância.")
+        return 0
     }
 
-    private nonisolated static func scanDuplicatesOffMain() async -> [DuplicateGroup] {
+    private nonisolated static func scanDuplicatesOffMain() -> (groups: [DuplicateGroup], issues: [String]) {
         let fm = FileManager.default
+        var issues: [String] = []
+        let deadline = Date().addingTimeInterval(45)
         let home = fm.homeDirectoryForCurrentUser
         let roots = [
             home.appendingPathComponent("Downloads"),
@@ -377,20 +346,35 @@ extension DiskScannerService {
 
         // Stage 1: Group files by exact byte size
         var bySize: [Int64: [(URL, Date)]] = [:]
-        for root in roots where fm.fileExists(atPath: root.path) {
+        for root in roots {
+            do { _ = try fm.attributesOfItem(atPath: root.path) }
+            catch {
+                let error = error as NSError
+                if error.domain != NSCocoaErrorDomain || ![NSFileNoSuchFileError, NSFileReadNoSuchFileError].contains(error.code) {
+                    issues.append("Não foi possível acessar \(root.path).")
+                }
+                continue
+            }
             guard let enumerator = fm.enumerator(
                 at: root,
                 includingPropertiesForKeys: keys,
-                options: [.skipsHiddenFiles, .skipsPackageDescendants]
-            ) else { continue }
+                options: [.skipsHiddenFiles, .skipsPackageDescendants],
+                errorHandler: { url, _ in issues.append("Não foi possível ler \(url.path)."); return true }
+            ) else { issues.append("Não foi possível listar \(root.path)."); continue }
 
             while let url = enumerator.nextObject() as? URL {
+                if Date() >= deadline {
+                    issues.append("A busca alcançou o limite de tempo; parte dos arquivos não foi comparada.")
+                    return ([], issues)
+                }
                 if url.path.contains(".photoslibrary") {
                     enumerator.skipDescendants()
                     continue
                 }
-                guard let vals = try? url.resourceValues(forKeys: Set(keys)),
-                      vals.isRegularFile == true,
+                guard let vals = try? url.resourceValues(forKeys: Set(keys)) else {
+                    issues.append("Não foi possível medir \(url.path)."); continue
+                }
+                guard vals.isRegularFile == true,
                       let fSize = vals.fileSize else { continue }
                 let size64 = Int64(fSize)
                 guard size64 >= minimumDuplicateSize else { continue }
@@ -403,11 +387,15 @@ extension DiskScannerService {
         var duplicateGroups: [DuplicateGroup] = []
 
         for (fileSize, candidates) in bySize where candidates.count >= 2 {
+            if Date() >= deadline {
+                issues.append("A comparação alcançou o limite de tempo; os resultados são parciais.")
+                break
+            }
             var byPartialHash: [String: [(URL, Date)]] = [:]
             for (url, modDate) in candidates {
                 if let partial = partialDigest(for: url, fileSize: fileSize) {
                     byPartialHash[partial, default: []].append((url, modDate))
-                }
+                } else { issues.append("Não foi possível comparar \(url.path).") }
             }
 
             for (_, partialMatches) in byPartialHash where partialMatches.count >= 2 {
@@ -415,18 +403,17 @@ extension DiskScannerService {
                 for (url, modDate) in partialMatches {
                     if let full = fullSHA256Digest(for: url) {
                         byFullHash[full, default: []].append((url, modDate))
-                    }
+                    } else { issues.append("Não foi possível comparar todo o conteúdo de \(url.path).") }
                 }
 
                 for (fullHash, exactMatches) in byFullHash where exactMatches.count >= 2 {
                     let sorted = exactMatches.sorted { $0.1 > $1.1 }
-                    let entries = sorted.enumerated().map { idx, pair in
+                    let entries = sorted.map { pair in
                         DuplicateFileEntry(
                             url: pair.0,
                             name: pair.0.lastPathComponent,
                             modifiedDate: pair.1,
-                            // Pre-select older copies while keeping the newest (index 0) unchecked!
-                            isSelectedForRemoval: idx > 0
+                            isSelectedForRemoval: false
                         )
                     }
                     duplicateGroups.append(
@@ -440,7 +427,7 @@ extension DiskScannerService {
             }
         }
 
-        return duplicateGroups.sorted { $0.maxReclaimableBytes > $1.maxReclaimableBytes }
+        return (duplicateGroups.sorted { $0.maxReclaimableBytes > $1.maxReclaimableBytes }, Array(Set(issues)).sorted())
     }
 
     private nonisolated static func partialDigest(for url: URL, fileSize: Int64) -> String? {
@@ -531,18 +518,8 @@ extension DiskScannerService {
     }
 
     public func cleanTrashedAppLeftovers(_ alert: TrashedAppAlert) async {
-        var cleaned: Int64 = 0
-        for file in alert.leftoverFiles {
-            if (try? SafetyGuard.remove(file.url, mode: .trash)) != nil {
-                cleaned += file.sizeBytes
-            }
-        }
-        trashedAppAlerts.removeAll { $0.id == alert.id }
-        if cleaned > 0 {
-            recordCleanupHistory(channelTitle: "Vigia da Lixeira (\(alert.appName))", freedBytes: cleaned, itemsCount: alert.leftoverFiles.count)
-            await scanTrash()
-            lastStatusMessage = "Vigia da Lixeira: \(ByteFormatter.string(from: cleaned)) de restos de \(alert.appName) foram limpos!"
-        }
+        await prepareFileReview(alert.leftoverFiles.map(\.url), title: "Restos de \(alert.appName)",
+                                consequence: "Pode remover preferências e histórico do aplicativo. Revise antes de confirmar.")
     }
 
     private nonisolated static func findRelatedLibraryFilesForApp(bundleID: String, appName: String) -> [AppRelatedFile] {

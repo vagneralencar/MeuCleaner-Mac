@@ -13,17 +13,20 @@ public struct RunningAppMemoryItem: Identifiable, Sendable {
 
 @MainActor
 public final class SystemMonitorService: ObservableObject {
-    @Published public var cpuUsagePercent: Double = 12.0
+    @Published public var cpuUsagePercent: Double = 0
+    @Published public var hasCPUSample: Bool = false
     @Published public var memoryUsedBytes: Int64 = 0
     @Published public var memoryTotalBytes: Int64 = Int64(ProcessInfo.processInfo.physicalMemory)
     @Published public var diskFreeBytes: Int64 = 0
     @Published public var diskTotalBytes: Int64 = 0
     @Published public var batteryPercent: Int = 100
     @Published public var isCharging: Bool = false
+    @Published public var hasBattery: Bool = false
     @Published public var networkDownBytesPerSec: Int64 = 0
     @Published public var networkUpBytesPerSec: Int64 = 0
     @Published public var topMemoryApps: [RunningAppMemoryItem] = []
     @Published public var isPopoverActive: Bool = false
+    @Published public var isDashboardActive: Bool = false
 
     private var timer: Timer?
     private var prevNetInBytes: UInt64 = 0
@@ -54,8 +57,10 @@ public final class SystemMonitorService: ObservableObject {
 
         // Efficiency optimization: Only enumerate processes and calculate network throughput
         // when the user has the MenuBar popover visible or explicit refresh is requested.
-        if isPopoverActive || forceHeavyTasks {
+        if isPopoverActive || isDashboardActive || forceHeavyTasks {
             updateNetworkThroughput()
+        }
+        if isPopoverActive || forceHeavyTasks {
             updateTopMemoryApps()
         }
     }
@@ -159,6 +164,7 @@ public final class SystemMonitorService: ObservableObject {
         if totalTicks > 0 {
             let busy = Double(totalUser + totalSystem + totalNice)
             cpuUsagePercent = min(100.0, max(0.0, (busy / Double(totalTicks)) * 100.0))
+            hasCPUSample = true
         }
     }
 
@@ -169,6 +175,7 @@ public final class SystemMonitorService: ObservableObject {
               let desc = IOPSGetPowerSourceDescription(snapshot, first)?.takeUnretainedValue() as? [String: Any] else {
             return
         }
+        hasBattery = true
         if let capacity = desc[kIOPSCurrentCapacityKey as String] as? Int {
             batteryPercent = capacity
         }

@@ -12,6 +12,7 @@ public struct HoldToConfirmButton: View {
     @State private var isPressing: Bool = false
     @State private var progress: CGFloat = 0.0
     @State private var holdTimer: Timer?
+    @State private var showingAccessibleConfirmation = false
 
     public init(
         title: String,
@@ -50,6 +51,7 @@ public struct HoldToConfirmButton: View {
                     .font(.system(size: 13, weight: .bold))
                 Text(isPressing ? "Segure para confirmar (\(Int(progress * 100))%)..." : title)
                     .font(.system(size: 13, weight: .semibold))
+                    .lineLimit(1).minimumScaleFactor(0.8)
             }
             .foregroundStyle(isPressing ? .white : (isDisabled ? .secondary : .red))
             .padding(.horizontal, 16)
@@ -75,12 +77,25 @@ public struct HoldToConfirmButton: View {
         )
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(title)
-        .accessibilityHint("Pressione e segure para confirmar a exclusão permanente")
+        .accessibilityHint("Abre uma confirmação de exclusão permanente")
         .accessibilityAction {
             if !isDisabled {
-                onConfirmed()
+                showingAccessibleConfirmation = true
             }
         }
+        .disabled(isDisabled)
+        .alert("Confirmar exclusão permanente", isPresented: $showingAccessibleConfirmation) {
+            Button("Cancelar", role: .cancel) {}
+            Button("Apagar permanentemente", role: .destructive) {
+                if !isDisabled { onConfirmed() }
+            }
+        } message: {
+            Text("\(title). Esta ação não pode ser desfeita.")
+        }
+        .onChange(of: isDisabled) { _, disabled in
+            if disabled { cancelHold(); showingAccessibleConfirmation = false }
+        }
+        .onDisappear { cancelHold(); showingAccessibleConfirmation = false }
     }
 
     private func startHold() {
@@ -92,6 +107,7 @@ public struct HoldToConfirmButton: View {
         holdTimer?.invalidate()
         holdTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { timer in
             Task { @MainActor in
+                guard isPressing, !isDisabled else { timer.invalidate(); return }
                 progress += step
                 if progress >= 1.0 {
                     timer.invalidate()

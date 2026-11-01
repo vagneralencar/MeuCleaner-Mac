@@ -18,7 +18,7 @@ struct StorageSnapshot: Codable, Sendable {
     func growth(in report: StorageReport) -> [StorageGrowth] {
         report.findings.compactMap { item in
             guard item.measurement.complete, !item.sharedBlocks, let old = sizes[item.id], item.measurement.allocatedBytes > old else { return nil }
-            return StorageGrowth(id: item.id, title: item.title, delta: item.measurement.allocatedBytes - old)
+            return StorageGrowth(id: item.id, title: item.displayTitle, delta: item.measurement.allocatedBytes - old)
         }.sorted { $0.delta > $1.delta }
     }
 }

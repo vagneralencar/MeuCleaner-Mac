@@ -16,7 +16,7 @@ public struct SpaceLensChannelView: View {
         VStack(alignment: .leading, spacing: 16) {
             ChannelHeaderView(
                 channel: .spaceLens,
-                trailingBadgeText: currentNode.map { ByteFormatter.string(from: $0.sizeBytes) },
+                trailingBadgeText: currentNode.map { !$0.isComplete && $0.sizeBytes == 0 ? "Não verificado" : ($0.isComplete ? "" : "Ao menos ") + ByteFormatter.string(from: $0.sizeBytes) },
                 actionTitle: scanner.isScanningSpaceLens ? "Mapeando..." : "Remapear Pasta Pessoal",
                 isLoading: scanner.isScanningSpaceLens,
                 onAction: {
@@ -54,6 +54,7 @@ public struct SpaceLensChannelView: View {
                                 .foregroundStyle(index == scanner.spaceLensBreadcrumbs.count - 1 ? .cyan : .primary)
                             }
                             .buttonStyle(.plain)
+                            .disabled(scanner.isScanningSpaceLens)
                         }
                     }
                 }
@@ -68,6 +69,7 @@ public struct SpaceLensChannelView: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
+                .disabled(scanner.isScanningSpaceLens)
             }
 
             if scanner.isScanningSpaceLens {
@@ -129,7 +131,7 @@ public struct SpaceLensChannelView: View {
                             if activeNode.children.isEmpty {
                                 Spacer()
                                 ContentUnavailableView(
-                                    "Pasta vazia ou sem subitens relevantes",
+                                    activeNode.isComplete ? "Pasta verificada vazia" : "Não foi possível verificar esta pasta",
                                     systemImage: "folder",
                                     description: Text("Use a barra de navegação acima para voltar ao nível anterior.")
                                 )
@@ -155,7 +157,7 @@ public struct SpaceLensChannelView: View {
                                                             .font(.subheadline.weight(.medium))
                                                             .lineLimit(1)
                                                         Spacer()
-                                                        Text(ByteFormatter.string(from: child.sizeBytes))
+                                                        Text(!child.isComplete && child.sizeBytes == 0 ? "Não verificado" : (child.isComplete ? "" : "Ao menos ") + ByteFormatter.string(from: child.sizeBytes))
                                                             .font(.system(.caption, design: .monospaced).weight(.bold))
                                                     }
 
@@ -197,16 +199,7 @@ public struct SpaceLensChannelView: View {
                                                 .buttonStyle(.borderless)
                                                 .help("Mostrar no Finder")
 
-                                                Button(role: .destructive) {
-                                                    Task {
-                                                        await scanner.moveSpaceLensNodeToTrash(child)
-                                                    }
-                                                } label: {
-                                                    Image(systemName: "trash")
-                                                        .foregroundStyle(.red)
-                                                }
-                                                .buttonStyle(.borderless)
-                                                .help("Mover para a Lixeira (protegido pela Guarda)")
+
                                             }
                                             .padding(.horizontal, 10)
                                             .padding(.vertical, 8)
@@ -226,7 +219,16 @@ public struct SpaceLensChannelView: View {
                 }
             }
 
-            SafetyNoticePill(text: "A Guarda de Segurança bloqueia automaticamente tentativas de apagar Documentos, Chaves, Fotos ou pastas do sistema.")
+            if let activeNode = currentNode, !activeNode.isComplete {
+                DisclosureGroup("Mapa parcial · alguns locais não puderam ser medidos") {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(activeNode.issues, id: \.self) { Text($0).font(.caption) }
+                        }
+                    }.frame(maxHeight: 120)
+                }.foregroundStyle(.orange)
+            }
+            SafetyNoticePill(text: "Inclui pastas ocultas. Links e outros volumes não são percorridos; vínculos físicos são contados uma vez por nível. Mapa somente de leitura.")
         }
         .padding(24)
         .task {

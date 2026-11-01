@@ -13,6 +13,12 @@ public enum CleanerChannel: Int, CaseIterable, Identifiable, Hashable {
     case startupItems = 9
     case duplicates = 10
     case developerStorage = 11
+    case history = 12
+
+    static let primary: [CleanerChannel] = [.home, .developerStorage, .history]
+    static let explorers: [CleanerChannel] = [.spaceLens, .duplicates, .largeAndOld]
+    static var tools: [CleanerChannel] { allCases.filter { !primary.contains($0) && $0 != .systemJunk } }
+    static var otherTools: [CleanerChannel] { tools.filter { !explorers.contains($0) } }
 
     public var id: Int { rawValue }
 
@@ -22,7 +28,7 @@ public enum CleanerChannel: Int, CaseIterable, Identifiable, Hashable {
 
     public var title: String {
         switch self {
-        case .home: return "Varredura Inteligente"
+        case .home: return "Visão geral"
         case .systemJunk: return "Lixo do Sistema"
         case .spaceLens: return "Space Lens"
         case .largeAndOld: return "Grandes e Antigos"
@@ -33,13 +39,14 @@ public enum CleanerChannel: Int, CaseIterable, Identifiable, Hashable {
         case .devAndAI: return "Dev & IA Cleaner"
         case .startupItems: return "Inicialização & Daemons"
         case .duplicates: return "Arquivos Duplicados"
-        case .developerStorage: return "Revisar e limpar"
+        case .developerStorage: return "Revisar limpeza"
+        case .history: return "Histórico"
         }
     }
 
     public var subtitle: String {
         switch self {
-        case .home: return "Resumo rápido do seu Mac, lixo seguro para limpar, espaço livre e histórico"
+        case .home: return "Entenda o espaço do seu Mac e decida o que revisar"
         case .systemJunk: return "Caches de apps, logs, Xcode DerivedData, npm, pnpm, bun, Cargo e Gradle"
         case .spaceLens: return "Mapa visual do seu disco em anéis interativos por nível de pasta"
         case .largeAndOld: return "Arquivos enormes e esquecidos filtrados por tipo e idade"
@@ -49,8 +56,9 @@ public enum CleanerChannel: Int, CaseIterable, Identifiable, Hashable {
         case .appUpdater: return "Atualizações em 1 clique via Homebrew, Sparkle e App Store"
         case .devAndAI: return "node_modules, .venv, target/build de projetos inativos e modelos de IA (Ollama/HF)"
         case .startupItems: return "Gerencie LaunchAgents e Daemons ocultos que iniciam junto com o Mac"
-        case .duplicates: return "Caçador ultrarrápido de arquivos idênticos em 3 estágios (SHA-256)"
-        case .developerStorage: return "Chrome, Docker, Xcode, Android: veja o uso, revise e escolha o que remover"
+        case .duplicates: return "Compare arquivos idênticos e escolha quais cópias manter"
+        case .developerStorage: return "Escolha o que remover e entenda o que será preservado"
+        case .history: return "Acompanhe o crescimento, os resultados e as opções de restauração"
         }
     }
 
@@ -67,7 +75,8 @@ public enum CleanerChannel: Int, CaseIterable, Identifiable, Hashable {
         case .devAndAI: return "cpu.fill"
         case .startupItems: return "bolt.horizontal.circle.fill"
         case .duplicates: return "doc.on.doc.fill"
-        case .developerStorage: return "externaldrive.connected.to.line.below"
+        case .developerStorage: return "checklist"
+        case .history: return "clock.arrow.circlepath"
         }
     }
 
@@ -85,6 +94,7 @@ public enum CleanerChannel: Int, CaseIterable, Identifiable, Hashable {
         case .startupItems: return .yellow
         case .duplicates: return .teal
         case .developerStorage: return .cyan
+        case .history: return .blue
         }
     }
 
@@ -102,6 +112,7 @@ public enum CleanerChannel: Int, CaseIterable, Identifiable, Hashable {
         case .startupItems: return "9"
         case .duplicates: return "d"
         case .developerStorage: return "e"
+        case .history: return "h"
         }
     }
 

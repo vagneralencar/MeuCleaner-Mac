@@ -28,7 +28,7 @@ public struct MenuBarPopoverView: View {
                         .font(.headline.bold())
                 }
                 Spacer()
-                Text("Agente Ativo")
+                Text("Monitor ativo")
                     .font(.system(size: 10, weight: .bold, design: .monospaced))
                     .padding(.horizontal, 7)
                     .padding(.vertical, 2)
@@ -67,7 +67,7 @@ public struct MenuBarPopoverView: View {
                 MetricMiniCard(
                     title: "MEMÓRIA",
                     value: String(format: "%.0f%%", monitor.memoryPressurePercent),
-                    subtitle: ByteFormatter.string(from: monitor.memoryUsedBytes),
+                    subtitle: ByteCountFormatter.string(fromByteCount: monitor.memoryUsedBytes, countStyle: .memory),
                     symbol: "memorychip.fill",
                     color: .purple
                 )
@@ -124,7 +124,7 @@ public struct MenuBarPopoverView: View {
 
                         Spacer()
 
-                        Text(ByteFormatter.string(from: app.memoryBytes))
+                        Text(ByteCountFormatter.string(fromByteCount: app.memoryBytes, countStyle: .memory))
                             .font(.system(size: 11, weight: .semibold, design: .monospaced))
                             .foregroundStyle(.secondary)
 

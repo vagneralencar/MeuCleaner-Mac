@@ -2,8 +2,8 @@
 set -euo pipefail
 
 APP_NAME="MeuCleaner"
-VERSION="1.4.0"
-BUILD_NUMBER="7"
+VERSION="1.5.0"
+BUILD_NUMBER="8"
 BUILD_DIR="$(pwd)/build"
 APP_BUNDLE="${BUILD_DIR}/${APP_NAME}.app"
 CONTENTS_DIR="${APP_BUNDLE}/Contents"

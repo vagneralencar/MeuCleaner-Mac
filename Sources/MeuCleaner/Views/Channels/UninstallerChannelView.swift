@@ -256,7 +256,7 @@ public struct UninstallerChannelView: View {
                                                 _ = await scanner.uninstallApp(app)
                                             }
                                         } label: {
-                                            Label("Desinstalar (\(ByteFormatter.string(from: app.totalSizeBytes)))", systemImage: "trash.fill")
+                                            Label("Revisar desinstalação (\(ByteFormatter.string(from: app.totalSizeBytes)))", systemImage: "trash.fill")
                                                 .fontWeight(.semibold)
                                                 .padding(.horizontal, 12)
                                                 .padding(.vertical, 8)

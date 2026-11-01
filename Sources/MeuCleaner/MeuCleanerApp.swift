@@ -25,9 +25,9 @@ public struct MeuCleanerApp: App {
         .windowToolbarStyle(.unified)
         .defaultSize(width: 1120, height: 760)
         .commands {
-            CommandMenu("Canais") {
+            CommandMenu("Navegar") {
                 ForEach(CleanerChannel.allCases) { channel in
-                    Button("\(channel.code) · \(channel.title)") {
+                    Button(channel.title) {
                         selectedChannel = channel
                     }
                     .keyboardShortcut(channel.shortcutKey, modifiers: [.command])

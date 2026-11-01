@@ -10,12 +10,12 @@
 
 <p align="center">
   <strong>Limpador nativo para macOS em Swift + SwiftUI — rápido, transparente e seguro por padrão.</strong><br/>
-  Acha o lixo do sistema, mapeia o disco em anéis interativos (Space Lens), desinstala apps sem deixar restos na Library, monitora CPU/RAM na barra de menus e envia tudo para a Lixeira antes de apagar.
+  Acha o lixo do sistema, mapeia o disco em anéis interativos (Space Lens), desinstala apps sem deixar restos na Library, monitora CPU/RAM na barra de menus e permite revisar os itens e o destino antes de qualquer remoção.
 </p>
 
 <p align="center">
   <a href="https://github.com/vagneralencar/MeuCleaner-Mac/releases/latest">
-    <img src="https://img.shields.io/badge/Release-v1.4.0%20Pro-AF52DE?style=for-the-badge&logo=github" alt="Release v1.4.0" />
+    <img src="https://img.shields.io/badge/Release-v1.5.0-AF52DE?style=for-the-badge&logo=github" alt="Release v1.5.0" />
   </a>
   <img src="https://img.shields.io/badge/macOS-14.0%2B-0A84FF?style=for-the-badge&logo=apple&logoColor=white" alt="macOS 14+" />
   <img src="https://img.shields.io/badge/Swift-6.0-F05138?style=for-the-badge&logo=swift&logoColor=white" alt="Swift" />
@@ -24,6 +24,25 @@
 </p>
 
 ---
+
+## Interface simplificada (1.5.0)
+
+A navegação principal passa a ter **Visão geral**, **Revisar limpeza** e **Histórico**.
+Space Lens, Arquivos Duplicados e Grandes e Antigos têm atalhos fixos em **Explorar**, na lateral. A visão geral reúne cartões coloridos das ferramentas; as demais também ficam em “Ferramentas adicionais”.
+
+- Visão geral mostra disponibilidade do macOS, cobertura e maiores locais encontrados, incluindo dados preservados. Medição não é promessa de espaço liberado.
+- CPU, memória, rede e bateria voltam como indicadores informativos, separados dos botões de análise e remoção.
+- Duplicados não vêm selecionados automaticamente, indicam falhas de leitura e exigem manter pelo menos uma cópia por grupo na seleção.
+- Space Lens e duplicados limitam a espera por leituras bloqueadas pelo macOS e sinalizam resultados incompletos, sem confundi-los com pastas vazias.
+- Revisão reúne filtros por aplicativo, busca, grupos de decisão e seleção explícita. Caminhos e detalhes ficam expansíveis.
+- Os fluxos de arquivos, duplicados, desinstalação e artefatos abrem a mesma revisão antes de remover; projetos e worktrees continuam bloqueados.
+- Histórico persiste resultados por item, falhas, destino e recibos da última operação restaurável. Restauração não sobrescreve destinos existentes.
+- Lixeira distingue erro de acesso de vazio confirmado. O mapa inclui ocultos, informa leitura parcial, não segue links/volumes e conta hard links uma vez por nível.
+- O catálogo inclui caches internos de Claude/Cursor, Expo, Gradle Wrapper, npm/npx e inventário preservado dos perfis/modelos do Chrome. Aplicativos ativos bloqueiam seus caches.
+- A varredura continua limitada a locais conhecidos; acesso ao disco não garante cobertura integral. O mapa é somente leitura.
+- A interface não inicia limpeza automaticamente. Docker usa confirmação explícita de remoção permanente; arquivos usam Lixeira por padrão.
+
+As seções de versões anteriores abaixo registram a evolução do aplicativo; os nomes e a navegação atuais são os da versão 1.5.0.
 
 ## Revisar e limpar (1.4.0)
 
@@ -59,6 +78,8 @@ Testes: `swift test`. Integração opcional, somente de leitura no Mac: `MEUCLEA
 ---
 
 ## 📸 Screenshots
+
+As capturas abaixo documentam a interface anterior. A versão 1.5.0 usa a navegação e os cartões descritos acima.
 
 ### Canal 00 · Varredura Inteligente (Smart Scan)
 Diagnóstico de arquivos e caches, espaço livre, Docker e ambientes de desenvolvimento. **Restos de Apps** e **Lixeira** são analisados sob demanda, sem bloquear o relatório principal. Pastas que aguardam permissão recebem aviso após um limite de tempo.
@@ -111,7 +132,7 @@ Arrastar um aplicativo para a Lixeira deixa preferências, caches, containers e 
 | **07** | `⌘7` | **Atualizador de Apps** | Busca e instala atualizações em 1 clique via **Homebrew Cask**, feeds **Sparkle (`SUFeedURL`)** e **Mac App Store Lookup API**. |
 | **08** | `⌘8` | **Dev & IA Cleaner (PRO)** | Encontra `node_modules`, `.next`, `.venv`, `target` e `.build` de projetos inativos, modelos locais de IA (**Ollama**, **Hugging Face**, **LM Studio**) e analisa os dados dos simuladores do Xcode sem apagá-los. |
 | **09** | `⌘9` | **Inicialização & Daemons (PRO)** | Gerencia `LaunchAgents` e `LaunchDaemons` ocultos em background com ativação/pausa via `launchctl`. |
-| **10** | `⌘D` | **Arquivos Duplicados (PRO)** | Caçador ultrarrápido em 3 estágios (`Tamanho` → `Hash Parcial 64 KB` → `SHA-256`) com botão *Manter Apenas o Mais Recente*. |
+| **10** | `⌘D` | **Arquivos Duplicados** | Compara conteúdo em três etapas, informa falhas de leitura e permite selecionar cópias mais antigas para revisão, mantendo ao menos uma cópia na seleção. |
 | **11** | `⌘E` | **Revisar e limpar** | Chrome, Docker, Xcode e Android com revisão dos itens, nova verificação de uso e confirmação do destino. |
 
 ---
@@ -120,7 +141,7 @@ Arrastar um aplicativo para a Lixeira deixa preferências, caches, containers e 
 
 - **👻 Vigia da Lixeira (Trash Watcher)**: Detecta automaticamente quando você joga um `.app` na Lixeira pelo Finder e exibe um alerta imediato caso aquele aplicativo tenha deixado restos órfãos na `~/Library`.
 - **🎯 Drop Zone de Desinstalação**: Arraste qualquer `.app` do Finder diretamente para a janela do Desinstalador para mapear todos os arquivos vinculados na `~/Library`.
-- **📊 Histórico Acumulado e Janela de Ajustes (`⌘,`)**: Registra o tamanho dos itens processados ao longo do tempo e permite configurar o destino padrão da limpeza; esse valor não representa necessariamente espaço físico liberado.
+- **📊 Histórico e Ajustes (`⌘,`)**: Registra resultados por item, destino e falhas. O destino é confirmado em cada revisão; arquivos usam a Lixeira por padrão. Tamanho processado não significa espaço físico liberado.
 
 ---
 

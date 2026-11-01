@@ -158,6 +158,8 @@ public struct DiskNode: Identifiable, Hashable, Sendable {
     public let itemCount: Int
     public var children: [DiskNode]
     public var isSelectedForCleanup: Bool
+    public var isComplete: Bool
+    public var issues: [String]
 
     public init(
         id: UUID = UUID(),
@@ -167,7 +169,9 @@ public struct DiskNode: Identifiable, Hashable, Sendable {
         isDirectory: Bool,
         itemCount: Int = 1,
         children: [DiskNode] = [],
-        isSelectedForCleanup: Bool = false
+        isSelectedForCleanup: Bool = false,
+        isComplete: Bool = true,
+        issues: [String] = []
     ) {
         self.id = id
         self.url = url
@@ -177,6 +181,8 @@ public struct DiskNode: Identifiable, Hashable, Sendable {
         self.itemCount = itemCount
         self.children = children
         self.isSelectedForCleanup = isSelectedForCleanup
+        self.isComplete = isComplete
+        self.issues = issues
     }
 }
 
@@ -724,7 +730,7 @@ public struct TrashedAppAlert: Identifiable, Hashable, Sendable {
 
 // MARK: - Cleanup History & Undo Receipts
 
-public struct TrashReceipt: Identifiable, Sendable {
+public struct TrashReceipt: Identifiable, Codable, Sendable {
     public let id: UUID
     public let originalURL: URL
     public let trashURL: URL

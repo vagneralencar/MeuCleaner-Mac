@@ -1,13 +1,42 @@
 import Foundation
 
 extension DiskScannerService {
-    func review(_ findings: [StorageFinding], title: String) {
+    // Additional tools use the same review, destination, revalidation and history.
+    // Preparing a review never removes files.
+    func prepareFileReview(_ urls: [URL], title: String, consequence: String) async {
+        guard !isScanningJunk && !isCleaningJunk && !isRestoring else { return }
+        isScanningJunk = true
+        lastStatusMessage = "Verificando os itens selecionados para revisão. Nenhum arquivo foi apagado."
+        let findings = await Task.detached(priority: .utility) {
+            var scan = IntelligentStorageScanner(usage: .capture())
+            var roots: [URL] = []
+            for url in urls.sorted(by: { $0.path.count < $1.path.count }) {
+                if !roots.contains(where: { StoragePaths.contains($0.path, url.path) }) { roots.append(url) }
+            }
+            for url in roots {
+                var protection: String?
+                do { try SafetyGuard.validateCanMoveToTrash(url) }
+                catch { protection = error.localizedDescription }
+                scan.append(url, title: url.lastPathComponent, category: nil, review: true, preserve: protection)
+            }
+            return scan.report.findings.map { finding in
+                var item = finding
+                item.explicitRemovalConsequence = consequence
+                return item
+            }
+        }.value
+        isScanningJunk = false
+        cleanupRequest = CleanupRequest(title: title, target: .files(findings),
+                                        initialSelection: Set(findings.filter(\.canReviewRemoval).map(\.id)))
+        lastStatusMessage = nil
+    }
+    func review(_ findings: [StorageFinding], title: String, selection: Set<String> = []) {
         guard !isScanningJunk && !isCleaningJunk else { return }
-        cleanupRequest = CleanupRequest(title: title, target: .files(findings))
+        cleanupRequest = CleanupRequest(title: title, target: .files(findings), initialSelection: selection)
     }
 
     func performReviewedCleanup(_ request: CleanupRequest, selection: Set<String>, mode: RemovalMode) async -> CleanupOutcome {
-        guard !isCleaningJunk && !isScanningJunk else {
+        guard !isCleaningJunk && !isScanningJunk && !isRestoring else {
             return CleanupOutcome(rows: [.init(id: "busy", title: "Operação em andamento", success: false, message: "Aguarde a análise ou limpeza atual.")])
         }
         isCleaningJunk = true
@@ -60,11 +89,29 @@ extension DiskScannerService {
         let succeeded = Set(outcome.rows.filter(\.success).map(\.id))
         junkItems.removeAll { succeeded.contains($0.url.path) }
         storageReport.findings.removeAll { succeeded.contains($0.id) }
+        largeFiles.removeAll { succeeded.contains($0.url.path) }
+        devArtifacts.removeAll { succeeded.contains($0.url.path) }
+        installedApps.removeAll { succeeded.contains($0.bundleURL.path) }
+        for index in installedApps.indices { installedApps[index].relatedFiles.removeAll { succeeded.contains($0.url.path) } }
+        for index in leftoverGroups.indices { leftoverGroups[index].files.removeAll { succeeded.contains($0.url.path) } }
+        leftoverGroups.removeAll { $0.files.isEmpty }
+        for index in duplicateGroups.indices { duplicateGroups[index].files.removeAll { succeeded.contains($0.url.path) } }
+        duplicateGroups.removeAll { $0.files.count < 2 }
+        trashedAppAlerts.removeAll { $0.leftoverFiles.allSatisfy { succeeded.contains($0.url.path) } }
         if !receipts.isEmpty { lastTrashReceipts = receipts }
         outcome.freeAfter = IntelligentStorageScanner.freeSpace(at: SafetyGuard.homeDirectoryURL)
         if case .files = request.target, mode == .trash {
             outcome.note = "Os itens continuam ocupando espaço na Lixeira até ela ser esvaziada. Você pode usar Desfazer para restaurá-los."
         }
+        let destination: String
+        if case .files = request.target {
+            destination = mode == .trash ? "Destino: Lixeira" : "Exclusão permanente"
+        } else { destination = "Remoção permanente pelo Docker" }
+        let activity = CleanupActivity(title: request.title, destination: destination, rows: outcome.rows,
+                                       freeBefore: outcome.freeBefore, freeAfter: outcome.freeAfter, note: outcome.note)
+        cleanupActivities.insert(activity, at: 0)
+        if cleanupActivities.count > 100 { cleanupActivities = Array(cleanupActivities.prefix(100)) }
+        if !receipts.isEmpty { restorableActivityID = activity.id }
         lastStatusMessage = "\(outcome.rows.filter(\.success).count) operações confirmadas; \(outcome.rows.filter { !$0.success }.count) itens preservados ou não confirmados."
         return outcome
     }

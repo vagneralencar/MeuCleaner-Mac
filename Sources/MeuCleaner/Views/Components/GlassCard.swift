@@ -91,13 +91,6 @@ public struct ChannelHeaderView: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
-                    Text("CANAL \(channel.code)")
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 2)
-                        .background(channel.accentColor.opacity(0.15), in: Capsule())
-                        .foregroundStyle(channel.accentColor)
-
                     Text(channel.title)
                         .font(.system(size: 22, weight: .bold, design: .rounded))
                 }
@@ -111,7 +104,7 @@ public struct ChannelHeaderView: View {
 
             if let badge = trailingBadgeText {
                 VStack(alignment: .trailing, spacing: 2) {
-                    Text("SELECIONADO / TOTAL")
+                    Text("MEDIÇÃO")
                         .font(.system(size: 10, weight: .semibold, design: .monospaced))
                         .foregroundStyle(.secondary)
                     Text(badge)
@@ -150,7 +143,7 @@ public struct ChannelHeaderView: View {
 public struct SafetyNoticePill: View {
     public let text: String
 
-    public init(text: String = "Segurança ativa: Tudo vai para a Lixeira do macOS primeiro.") {
+    public init(text: String = "Revise os itens e o destino antes de confirmar. A Lixeira é a opção padrão.") {
         self.text = text
     }
 

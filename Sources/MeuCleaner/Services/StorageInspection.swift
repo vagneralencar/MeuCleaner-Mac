@@ -104,8 +104,11 @@ enum StorageMeter {
     // Counts hidden files and deep trees, deduplicates hard links, never follows symlinks/mounts.
     // Allocated size still is NOT exclusive/reclaimable size on APFS.
     static func measure(_ url: URL, maxEntries: Int = 500_000, timeLimit: TimeInterval = 20) -> StorageMeasurement {
-        var result = StorageMeasurement()
         var seen = Set<FileIdentity>()
+        return measure(url, maxEntries: maxEntries, timeLimit: timeLimit, seen: &seen)
+    }
+    static func measure(_ url: URL, maxEntries: Int, timeLimit: TimeInterval, seen: inout Set<FileIdentity>) -> StorageMeasurement {
+        var result = StorageMeasurement()
         var rootStat = stat()
         guard lstat(url.path, &rootStat) == 0 else {
             result.complete = false; result.issues = ["Não foi possível ler \(url.path)"]; return result
@@ -208,6 +211,17 @@ struct FileUsageSnapshot: Sendable {
         if mountedPaths.contains(where: { StoragePaths.contains(path, $0) || StoragePaths.contains($0, path) }) { return "Imagem de disco ou volume montado." }
         if executablePaths.contains(where: { StoragePaths.contains(path, StoragePaths.normalized($0)) }) { return "Executável em uso." }
         let lower = path.lowercased()
+        for (folder, app) in [("/library/application support/claude/", "/Claude.app/"),
+                              ("/library/application support/cursor/", "/Cursor.app/"),
+                              ("/library/application support/google/chrome/", "/Google Chrome.app/")] {
+            if lower.contains(folder) && executablePaths.contains(where: { $0.contains(app) }) {
+                return "Aplicativo responsável está aberto. Feche-o e analise novamente."
+            }
+        }
+        if (lower.contains("/.npm/_npx") || lower.contains("/.expo/")) &&
+            executablePaths.contains(where: { $0.hasSuffix("/node") || $0.contains("/qemu-system") }) {
+            return "Ferramenta de desenvolvimento ativa; cache preservado até nova verificação."
+        }
         if let range = lower.range(of: "/library/caches/") {
             let cacheName = String(lower[range.upperBound...].split(separator: "/").first ?? "")
             if applicationIdentifiers.contains(where: { cacheName == $0 || cacheName.hasPrefix($0 + ".") }) {

@@ -177,7 +177,7 @@ public struct LargeAndOldChannelView: View {
                     }
                 } label: {
                     Label(
-                        "Mover para a Lixeira (\(ByteFormatter.string(from: scanner.selectedLargeFilesBytes)))",
+                        "Revisar seleção (\(ByteFormatter.string(from: scanner.selectedLargeFilesBytes)))",
                         systemImage: "trash"
                     )
                     .fontWeight(.semibold)

@@ -166,7 +166,7 @@ public struct DevAndAIChannelView: View {
                     Task { _ = await scanner.cleanSelectedDevArtifacts() }
                 } label: {
                     Label(
-                        "Limpar Artefatos (\(ByteFormatter.string(from: scanner.selectedDevArtifactsBytes)))",
+                        "Revisar artefatos (\(ByteFormatter.string(from: scanner.selectedDevArtifactsBytes)))",
                         systemImage: "trash"
                     )
                     .fontWeight(.semibold)

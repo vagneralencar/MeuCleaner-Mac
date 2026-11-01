@@ -9,8 +9,9 @@ struct CleanupRequest: Identifiable {
     let id = UUID()
     let title: String
     let target: Target
+    var initialSelection: Set<String> = []
 }
-struct CleanupResultRow: Identifiable, Sendable {
+struct CleanupResultRow: Identifiable, Codable, Sendable {
     let id: String
     let title: String
     let success: Bool
@@ -24,5 +25,5 @@ struct CleanupOutcome: Sendable {
 }
 
 extension StorageFinding {
-    var canReviewRemoval: Bool { category != nil && disposition.allowsSelection && identity != nil }
+    var canReviewRemoval: Bool { (category != nil || explicitRemovalConsequence != nil) && measurement.complete && disposition.allowsSelection && identity != nil }
 }

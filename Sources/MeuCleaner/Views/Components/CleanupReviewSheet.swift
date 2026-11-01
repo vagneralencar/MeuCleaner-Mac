@@ -9,6 +9,14 @@ struct CleanupReviewSheet: View {
     @State private var outcome: CleanupOutcome?
 
     private var fileMode: Bool { if case .files = request.target { return true }; return false }
+    private var itemCount: String { "\(selection.count) \(selection.count == 1 ? "item" : "itens")" }
+    private var permanentAction: String {
+        switch request.target {
+        case .files: return "Apagar \(itemCount) permanentemente"
+        case .images: return "Remover \(selection.count) \(selection.count == 1 ? "imagem" : "imagens") Docker"
+        case .buildCache: return "Remover cache de builds Docker"
+        }
+    }
     private var available: Set<String> {
         switch request.target {
         case .files(let files): return Set(files.filter(\.canReviewRemoval).map(\.id))
@@ -19,10 +27,10 @@ struct CleanupReviewSheet: View {
     private var summary: String {
         if case .files(let files) = request.target {
             let selected = files.filter { selection.contains($0.id) }
-            if selected.contains(where: \.sharedBlocks) { return "\(selection.count) itens · ganho desconhecido por compartilhamento APFS" }
-            return "\(selection.count) itens · \(ByteFormatter.string(from: selected.reduce(0) { $0 + $1.measurement.allocatedBytes })) medidos"
+            if selected.contains(where: \.sharedBlocks) { return "\(itemCount) · ganho desconhecido por compartilhamento APFS" }
+            return "\(itemCount) · \(ByteFormatter.string(from: selected.reduce(0) { $0 + $1.measurement.allocatedBytes })) medidos"
         }
-        return "\(selection.count) itens selecionados · exclusão permanente pelo Docker"
+        return "\(itemCount) · exclusão permanente pelo Docker"
     }
     private func toggle(_ id: String, allowed: Bool) -> Binding<Bool> {
         Binding(get: { selection.contains(id) }, set: { checked in
@@ -64,11 +72,11 @@ struct CleanupReviewSheet: View {
                     Button("Cancelar") { dismiss() }.disabled(scanner.isCleaningJunk)
                     Spacer()
                     if fileMode && mode == .trash {
-                        Button("Verificar e mover \(selection.count) itens para a Lixeira") { perform() }
+                        Button("Mover \(itemCount) para a Lixeira") { perform() }
                             .buttonStyle(.borderedProminent)
                             .disabled(selection.isEmpty || scanner.isCleaningJunk || scanner.isScanningJunk)
                     } else {
-                        HoldToConfirmButton(title: "Segure para verificar e apagar \(selection.count) itens", symbol: "trash", holdDuration: 1.5,
+                        HoldToConfirmButton(title: "Segure: \(permanentAction)", symbol: "trash", holdDuration: 1.5,
                                             isDisabled: selection.isEmpty || scanner.isCleaningJunk || scanner.isScanningJunk) { perform() }
                     }
                 }
@@ -76,6 +84,7 @@ struct CleanupReviewSheet: View {
         }
         .padding(24).frame(width: 830, height: 650)
         .interactiveDismissDisabled(scanner.isCleaningJunk)
+        .onAppear { selection = request.initialSelection.intersection(available) }
     }
     @ViewBuilder private var reviewRows: some View {
         switch request.target {
@@ -84,13 +93,7 @@ struct CleanupReviewSheet: View {
                 HStack(alignment: .top) {
                     Toggle("Selecionar \(item.title)", isOn: toggle(item.id, allowed: item.canReviewRemoval))
                         .labelsHidden().toggleStyle(.checkbox).disabled(!item.canReviewRemoval || scanner.isCleaningJunk)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(item.title).font(.subheadline.weight(.semibold))
-                        Text("\(item.disposition.rawValue) · \(item.reason)").font(.caption).foregroundStyle(.secondary)
-                        Text(item.url.path).font(.caption2).foregroundStyle(.secondary).textSelection(.enabled)
-                    }
-                    Spacer()
-                    Text(item.sharedBlocks ? "APFS compartilhado" : ByteFormatter.string(from: item.measurement.allocatedBytes)).font(.caption).monospacedDigit()
+                    StorageFindingRow(item: item)
                 }
                 Divider()
             }
@@ -103,7 +106,7 @@ struct CleanupReviewSheet: View {
                         Text(image.title).font(.subheadline.weight(.semibold))
                         Text(image.canRemove ? "Revisar · nenhum container referencia esta imagem agora." : "Preservada · \(image.containers) containers referenciam esta imagem, inclusive parados.")
                             .font(.caption).foregroundStyle(.secondary)
-                        Text(image.id).font(.caption2).textSelection(.enabled)
+                        DisclosureGroup("Identificador técnico") { Text(image.id).font(.caption2).textSelection(.enabled) }
                     }
                     Spacer()
                     Text(ByteFormatter.string(from: image.size)).font(.caption)

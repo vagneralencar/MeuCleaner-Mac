@@ -35,10 +35,10 @@ public struct SpaceLensRingChart: View {
         var currentDeg: Double = -90.0
 
         for (index, child) in rootNode.children.prefix(10).enumerated() {
-            let fraction = max(0.015, Double(child.sizeBytes) / total)
+            let fraction = Double(child.sizeBytes) / total
             let sweep = fraction * 360.0
             let start = currentDeg
-            let end = currentDeg + max(2.0, sweep - 1.8) // small gap between arcs
+            let end = currentDeg + max(0, sweep - 1.8) // small gap between arcs
             let baseColor = Self.palette[index % Self.palette.count]
 
             result.append(

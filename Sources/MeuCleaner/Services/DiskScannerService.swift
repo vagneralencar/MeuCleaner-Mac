@@ -39,6 +39,11 @@ public final class DiskScannerService: ObservableObject {
     @Published public var trashItems: [TrashItem] = []
     @Published public var isScanningTrash: Bool = false
     @Published var hasScannedTrash = false
+    @Published var trashScanIssue: String?
+    @Published var isRestoring = false
+    @Published var cleanupActivities: [CleanupActivity] = [] {
+        didSet { if let data = try? JSONEncoder().encode(cleanupActivities) { UserDefaults.standard.set(data, forKey: "MeuCleaner.Activities.v1") } }
+    }
 
     // Channel 07: App Updater
     @Published public var updatableApps: [UpdatableApp] = []
@@ -56,12 +61,20 @@ public final class DiskScannerService: ObservableObject {
     // Channel 10: Smart Duplicates
     @Published public var duplicateGroups: [DuplicateGroup] = []
     @Published public var isScanningDuplicates: Bool = false
+    @Published public var hasScannedDuplicates: Bool = false
+    @Published public var duplicateScanIssues: [String] = []
 
     // Vigia da Lixeira (Trash App Watcher) & History
     @Published public var trashedAppAlerts: [TrashedAppAlert] = []
     @Published public var trashWatcherEnabled: Bool = true
     @Published public var cleanupHistory: [CleanupHistoryRecord] = []
-    @Published public var lastTrashReceipts: [TrashReceipt] = []
+    @Published public var lastTrashReceipts: [TrashReceipt] = [] {
+        didSet { if let data = try? JSONEncoder().encode(lastTrashReceipts) { UserDefaults.standard.set(data, forKey: "MeuCleaner.RestoreReceipts.v1") } }
+    }
+    var restorableActivityID: UUID? {
+        get { UserDefaults.standard.string(forKey: "MeuCleaner.RestorableActivity").flatMap(UUID.init(uuidString:)) }
+        set { UserDefaults.standard.set(newValue?.uuidString, forKey: "MeuCleaner.RestorableActivity") }
+    }
 
     // Status Banner / Feedback
     @Published public var lastStatusMessage: String?
@@ -71,6 +84,12 @@ public final class DiskScannerService: ObservableObject {
 
     public init() {
         loadCleanupHistory()
+        if let data = UserDefaults.standard.data(forKey: "MeuCleaner.Activities.v1"),
+           let activities = try? JSONDecoder().decode([CleanupActivity].self, from: data) { cleanupActivities = activities }
+        if let data = UserDefaults.standard.data(forKey: "MeuCleaner.RestoreReceipts.v1"),
+           let receipts = try? JSONDecoder().decode([TrashReceipt].self, from: data) {
+            lastTrashReceipts = receipts
+        }
     }
 
     public func refreshFullDiskAccessStatus() {
@@ -134,7 +153,7 @@ public final class DiskScannerService: ObservableObject {
     // MARK: - Smart Scan (Home + Junk + Leftovers + Trash)
 
     public func runSmartScan() async {
-        guard !isScanningJunk && !isCleaningJunk else { return }
+        guard !isScanningJunk && !isCleaningJunk && !isRestoring else { return }
         let start = CFAbsoluteTimeGetCurrent()
         isScanningJunk = true
         refreshFullDiskAccessStatus()
@@ -158,7 +177,7 @@ public final class DiskScannerService: ObservableObject {
     // MARK: - Channel 01: System Junk (CleanerCore.JunkRule.defaults)
 
     public func scanSystemJunk() async {
-        guard !isScanningJunk && !isCleaningJunk else { return }
+        guard !isScanningJunk && !isCleaningJunk && !isRestoring else { return }
         let start = CFAbsoluteTimeGetCurrent()
         isScanningJunk = true
         let result = await Task.detached(priority: .utility) { IntelligentStorageScanner.scan() }.value
@@ -210,36 +229,58 @@ public final class DiskScannerService: ObservableObject {
     }
 
     public func undoLastCleanup() async {
-        guard !lastTrashReceipts.isEmpty else { return }
+        guard !isRestoring && !isCleaningJunk && !isScanningJunk else { return }
+        isRestoring = true
+        defer { isRestoring = false }
+        let receipts = lastTrashReceipts
+        guard !receipts.isEmpty else { return }
         let fm = FileManager.default
-        var restoredCount = 0
-        var restoredBytes: Int64 = 0
+        let before = IntelligentStorageScanner.freeSpace(at: SafetyGuard.homeDirectoryURL)
         var pending: [TrashReceipt] = []
-
-        for receipt in lastTrashReceipts {
-            if fm.fileExists(atPath: receipt.trashURL.path) {
-                guard receipt.originalURL.standardizedFileURL == receipt.originalURL.resolvingSymlinksInPath(),
-                      !fm.fileExists(atPath: receipt.originalURL.path) else { pending.append(receipt); continue }
-                let parentDir = receipt.originalURL.deletingLastPathComponent()
-                try? fm.createDirectory(at: parentDir, withIntermediateDirectories: true)
-                do {
-                    try fm.moveItem(at: receipt.trashURL, to: receipt.originalURL)
-                    restoredCount += 1
-                    restoredBytes += receipt.sizeBytes
-                } catch {
-                    pending.append(receipt)
+        var rows: [CleanupResultRow] = []
+        for receipt in receipts {
+            do { _ = try fm.attributesOfItem(atPath: receipt.trashURL.path) }
+            catch {
+                let error = error as NSError
+                let missing = error.domain == NSCocoaErrorDomain && [NSFileReadNoSuchFileError, NSFileNoSuchFileError].contains(error.code)
+                if !missing { pending.append(receipt) }
+                rows.append(.init(id: receipt.id.uuidString, title: receipt.originalURL.lastPathComponent, success: false,
+                                  message: missing ? "Não encontrado na Lixeira. Restauração não confirmada." : "Não foi possível acessar a Lixeira. Recibo preservado para tentar novamente."))
+                continue
+            }
+            do {
+                guard receipt.trashURL.standardizedFileURL == receipt.trashURL.resolvingSymlinksInPath(),
+                      receipt.originalURL.standardizedFileURL == receipt.originalURL.resolvingSymlinksInPath(),
+                      !fm.fileExists(atPath: receipt.originalURL.path) else {
+                    throw SafetyViolationError.unsafeRemoval("O destino já existe ou contém um link. Nada foi sobrescrito.")
                 }
+                try fm.createDirectory(at: receipt.originalURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try fm.moveItem(at: receipt.trashURL, to: receipt.originalURL)
+                rows.append(.init(id: receipt.id.uuidString, title: receipt.originalURL.lastPathComponent, success: true, message: "Restaurado para a pasta original."))
+            } catch {
+                pending.append(receipt)
+                rows.append(.init(id: receipt.id.uuidString, title: receipt.originalURL.lastPathComponent, success: false, message: error.localizedDescription))
             }
         }
-
         lastTrashReceipts = pending
+        if rows.allSatisfy(\.success), let id = restorableActivityID,
+           let index = cleanupActivities.firstIndex(where: { $0.id == id }),
+           Set(cleanupActivities[index].rows.filter(\.success).map(\.id)) == Set(receipts.map { $0.originalURL.path }) {
+            cleanupActivities[index].restoredAt = Date()
+            restorableActivityID = nil
+        }
+        cleanupActivities.insert(CleanupActivity(title: "Restauração", destination: "Pastas originais", rows: rows,
+            freeBefore: before, freeAfter: IntelligentStorageScanner.freeSpace(at: SafetyGuard.homeDirectoryURL),
+            note: "Arquivos existentes nunca são sobrescritos. Consulte o resultado de cada item."), at: 0)
+        if cleanupActivities.count > 100 { cleanupActivities = Array(cleanupActivities.prefix(100)) }
         await scanTrash()
-        lastStatusMessage = "\(restoredCount) item(ns) restaurados com sucesso para a pasta original (\(ByteFormatter.string(from: restoredBytes))). \(pending.count) restaurações pendentes, sem sobrescrever arquivos existentes."
+        lastStatusMessage = "\(rows.filter(\.success).count) itens restaurados; \(rows.filter { !$0.success }.count) restaurações não confirmadas. Consulte o Histórico."
     }
 
     // MARK: - Channel 02: Space Lens
 
     public func scanSpaceLens(at directoryURL: URL? = nil) async {
+        guard !isScanningSpaceLens else { return }
         let targetURL = directoryURL ?? FileManager.default.homeDirectoryForCurrentUser
         isScanningSpaceLens = true
         spaceLensScannedItemsCount = 0
@@ -252,7 +293,7 @@ public final class DiskScannerService: ObservableObject {
     }
 
     public func drillDownSpaceLens(to node: DiskNode) async {
-        guard node.isDirectory else { return }
+        guard node.isDirectory && !isScanningSpaceLens else { return }
         if node.children.isEmpty {
             isScanningSpaceLens = true
             let (expanded, _) = await Self.buildSpaceLensTreeOffMain(rootURL: node.url, maxDepth: 2)
@@ -283,64 +324,10 @@ public final class DiskScannerService: ObservableObject {
     }
 
     private nonisolated static func buildSpaceLensTreeOffMain(rootURL: URL, maxDepth: Int) async -> (DiskNode, Int) {
-        var scannedCount = 0
-        func buildNode(url: URL, currentDepth: Int) -> DiskNode {
-            let fm = FileManager.default
-            var isDir: ObjCBool = false
-            _ = fm.fileExists(atPath: url.path, isDirectory: &isDir)
-            scannedCount += 1
-
-            if !isDir.boolValue || currentDepth >= maxDepth {
-                let size = directoryOrFileSize(at: url, maxDepth: 3)
-                return DiskNode(
-                    url: url,
-                    name: url.lastPathComponent.isEmpty ? url.path : url.lastPathComponent,
-                    sizeBytes: size,
-                    isDirectory: isDir.boolValue,
-                    itemCount: 1,
-                    children: []
-                )
-            }
-
-            guard let contents = try? fm.contentsOfDirectory(
-                at: url,
-                includingPropertiesForKeys: [.isDirectoryKey, .fileAllocatedSizeKey, .totalFileAllocatedSizeKey],
-                options: [.skipsHiddenFiles, .skipsPackageDescendants]
-            ) else {
-                let fallbackSize = directoryOrFileSize(at: url, maxDepth: 2)
-                return DiskNode(
-                    url: url,
-                    name: url.lastPathComponent,
-                    sizeBytes: fallbackSize,
-                    isDirectory: true,
-                    itemCount: 1,
-                    children: []
-                )
-            }
-
-            var childNodes: [DiskNode] = []
-            for childURL in contents {
-                let childNode = buildNode(url: childURL, currentDepth: currentDepth + 1)
-                if childNode.sizeBytes > 0 {
-                    childNodes.append(childNode)
-                }
-            }
-            childNodes.sort { $0.sizeBytes > $1.sizeBytes }
-            let totalSize = childNodes.reduce(0) { $0 + $1.sizeBytes }
-            let topChildren = Array(childNodes.prefix(14))
-
-            return DiskNode(
-                url: url,
-                name: url.lastPathComponent.isEmpty ? url.path : url.lastPathComponent,
-                sizeBytes: totalSize,
-                isDirectory: true,
-                itemCount: childNodes.count,
-                children: topChildren
-            )
-        }
-
-        let root = buildNode(url: rootURL, currentDepth: 0)
-        return (root, scannedCount)
+        BoundedFilesystemRead.run(key: "map-root:\(rootURL.path)", timeout: 95) {
+            SpaceLensScanner.scan(rootURL)
+        } ?? (DiskNode(url: rootURL, name: rootURL.lastPathComponent, sizeBytes: 0, isDirectory: true,
+                       isComplete: false, issues: ["Leitura não concluída no prazo ou ainda aguardando o macOS. Confira as permissões ou escolha outra pasta."]), 0)
     }
 
     // MARK: - Channel 03: Large & Old Files
@@ -353,25 +340,9 @@ public final class DiskScannerService: ObservableObject {
     }
 
     public func cleanSelectedLargeFiles() async -> Int64 {
-        let selected = largeFiles.filter(\.isSelected)
-        var cleaned: Int64 = 0
-        var removed = Set<UUID>()
-        for item in selected {
-            do {
-                _ = try SafetyGuard.remove(item.url, mode: removalMode)
-                cleaned += item.sizeBytes
-                removed.insert(item.id)
-            } catch {
-                lastStatusMessage = error.localizedDescription
-            }
-        }
-        largeFiles.removeAll { removed.contains($0.id) }
-        if cleaned > 0 {
-            recordCleanupHistory(channelTitle: "Grandes e Antigos", freedBytes: cleaned, itemsCount: removed.count)
-            await scanTrash()
-            lastStatusMessage = "Movidos \(ByteFormatter.string(from: cleaned)) de arquivos grandes para a Lixeira."
-        }
-        return cleaned
+        await prepareFileReview(largeFiles.filter(\.isSelected).map(\.url), title: "Arquivos selecionados",
+                                consequence: "São arquivos pessoais. Confirme que não precisa deles antes de remover.")
+        return 0
     }
 
     private nonisolated static func scanLargeFilesOffMain() async -> [LargeFileItem] {
@@ -449,52 +420,15 @@ public final class DiskScannerService: ObservableObject {
     }
 
     public func uninstallApp(_ app: InstalledApp) async -> Bool {
-        var totalRemoved: Int64 = 0
-        do {
-            for related in app.relatedFiles where related.isSelected {
-                _ = try SafetyGuard.remove(related.url, mode: removalMode)
-                totalRemoved += related.sizeBytes
-            }
-            _ = try SafetyGuard.remove(app.bundleURL, mode: removalMode)
-            totalRemoved += app.appSizeBytes
-            installedApps.removeAll { $0.id == app.id }
-            recordCleanupHistory(channelTitle: "Desinstalador (\(app.name))", freedBytes: totalRemoved, itemsCount: 1 + app.relatedFiles.count)
-            await scanTrash()
-            lastStatusMessage = "\(app.name) e seus restos (\(ByteFormatter.string(from: totalRemoved))) foram movidos para a Lixeira."
-            return true
-        } catch {
-            lastStatusMessage = "Não foi possível remover \(app.name): \(error.localizedDescription)"
-            return false
-        }
+        await prepareFileReview([app.bundleURL] + app.relatedFiles.filter(\.isSelected).map(\.url), title: "Desinstalar \(app.name)",
+                                consequence: "A remoção pode apagar o aplicativo, suas configurações e dados selecionados. Revise cada item.")
+        return false
     }
 
     public func cleanSelectedLeftovers() async -> Int64 {
-        let selectedGroups = leftoverGroups.filter(\.isSelected)
-        var cleaned: Int64 = 0
-        var removedGroupIDs = Set<UUID>()
-
-        for group in selectedGroups {
-            var allMoved = true
-            for file in group.files {
-                do {
-                    _ = try SafetyGuard.remove(file.url, mode: removalMode)
-                    cleaned += file.sizeBytes
-                } catch {
-                    allMoved = false
-                }
-            }
-            if allMoved {
-                removedGroupIDs.insert(group.id)
-            }
-        }
-
-        leftoverGroups.removeAll { removedGroupIDs.contains($0.id) }
-        if cleaned > 0 {
-            recordCleanupHistory(channelTitle: "Restos de Apps", freedBytes: cleaned, itemsCount: removedGroupIDs.count)
-            await scanTrash()
-            lastStatusMessage = "Restos de apps (\(ByteFormatter.string(from: cleaned))) movidos para a Lixeira."
-        }
-        return cleaned
+        await prepareFileReview(leftoverGroups.filter(\.isSelected).flatMap { $0.files.map(\.url) }, title: "Restos de aplicativos",
+                                consequence: "Estes dados podem incluir configurações e histórico. A ausência de um aplicativo não prova que sejam descartáveis.")
+        return 0
     }
 
     private nonisolated static func scanAppsAndLeftoversOffMain() async -> ([InstalledApp], [OrphanedLeftoverGroup]) {
@@ -699,10 +633,12 @@ public final class DiskScannerService: ObservableObject {
     // MARK: - Channel 06: Trash
 
     public func scanTrash() async {
+        guard !isScanningTrash else { return }
         isScanningTrash = true
         let result = await Self.scanTrashOffMain()
         trashItems = result.items
         hasScannedTrash = result.issue == nil
+        trashScanIssue = result.issue
         isScanningTrash = false
         if let issue = result.issue {
             lastStatusMessage = issue
@@ -734,9 +670,12 @@ public final class DiskScannerService: ObservableObject {
         let contents = listing.urls
 
         var results: [TrashItem] = []
+        var measurementIssues: [String] = []
         for url in contents {
             let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .addedToDirectoryDateKey, .contentModificationDateKey])
-            let size = directoryOrFileSize(at: url, maxDepth: 4)
+            let measurement = StorageMeter.measure(url)
+            let size = measurement.allocatedBytes
+            measurementIssues.append(contentsOf: measurement.issues)
             results.append(
                 TrashItem(
                     url: url,
@@ -747,7 +686,7 @@ public final class DiskScannerService: ObservableObject {
                 )
             )
         }
-        return (results.sorted { $0.sizeBytes > $1.sizeBytes }, nil)
+        return (results.sorted { $0.sizeBytes > $1.sizeBytes }, measurementIssues.isEmpty ? nil : "Leitura parcial da Lixeira: " + measurementIssues.joined(separator: "; "))
     }
 
     // MARK: - Channel 07: App Updater (Homebrew + Sparkle Appcast XML + App Store iTunes Lookup)

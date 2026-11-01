@@ -5,274 +5,88 @@ public struct MainView: View {
     @ObservedObject public var monitor: SystemMonitorService
     @ObservedObject public var updater: SelfUpdaterService
     @Binding public var selectedChannel: CleanerChannel
-
-    public init(
-        scanner: DiskScannerService,
-        monitor: SystemMonitorService,
-        updater: SelfUpdaterService,
-        selectedChannel: Binding<CleanerChannel>
-    ) {
-        self.scanner = scanner
-        self.monitor = monitor
-        self.updater = updater
-        self._selectedChannel = selectedChannel
+    public init(scanner: DiskScannerService, monitor: SystemMonitorService, updater: SelfUpdaterService, selectedChannel: Binding<CleanerChannel>) {
+        self.scanner = scanner; self.monitor = monitor; self.updater = updater; self._selectedChannel = selectedChannel
     }
-
     public var body: some View {
         NavigationSplitView {
-            VStack(spacing: 0) {
-                // App Brand Header in Sidebar
-                HStack(spacing: 10) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(
-                                LinearGradient(
-                                    colors: [.blue, .cyan],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
-                            .frame(width: 34, height: 34)
-                        Image(systemName: "sparkles")
-                            .font(.system(size: 17, weight: .bold))
-                            .foregroundStyle(.white)
-                    }
-
-                    VStack(alignment: .leading, spacing: 1) {
-                        HStack(spacing: 5) {
-                            Text("MeuCleaner")
-                                .font(.system(size: 15, weight: .bold, design: .rounded))
-                            Text("PRO")
-                                .font(.system(size: 9, weight: .heavy, design: .monospaced))
-                                .padding(.horizontal, 5)
-                                .padding(.vertical, 1)
-                                .background(Color.cyan.opacity(0.2), in: Capsule())
-                                .foregroundStyle(.cyan)
-                        }
-                        Text("v" + (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "desenvolvimento"))
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
+            VStack(alignment: .leading, spacing: 20) {
+                Label("MeuCleaner", systemImage: "sparkles").font(.title2.bold()).padding(.top, 12)
+                ForEach(CleanerChannel.primary) { channel in
+                    navigationButton(channel)
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
-                .padding(.bottom, 10)
-
-                // Channels 00–10 List
-                List(CleanerChannel.allCases, selection: $selectedChannel) { channel in
-                    HStack(spacing: 10) {
-                        Image(systemName: channel.symbol)
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(selectedChannel == channel ? .white : channel.accentColor)
-                            .frame(width: 24, height: 24)
-                            .background(
-                                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                    .fill(selectedChannel == channel ? channel.accentColor : channel.accentColor.opacity(0.14))
-                            )
-
-                        Text(channel.title)
-                            .font(.system(size: 13, weight: .medium))
-                            .lineLimit(1)
-
-                        Spacer()
-
-                        if channel.isProDifferentiator {
-                            Text("PRO")
-                                .font(.system(size: 8, weight: .bold, design: .monospaced))
-                                .padding(.horizontal, 4)
-                                .padding(.vertical, 1)
-                                .background(channel.accentColor.opacity(0.18), in: Capsule())
-                                .foregroundStyle(channel.accentColor)
-                        }
-
-                        Text(channel.code)
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.vertical, 2)
-                    .tag(channel)
-                }
-                .listStyle(.sidebar)
-
                 Divider()
-
-                // Live Storage & System Footer in Sidebar
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Label("Macintosh HD", systemImage: "internaldrive.fill")
-                            .font(.caption.weight(.semibold))
-                        Spacer()
-                        Text("\(ByteFormatter.string(from: monitor.diskFreeBytes)) livres")
-                            .font(.system(size: 11, weight: .bold, design: .monospaced))
-                            .foregroundStyle(.blue)
-                    }
-
-                    ProgressView(value: monitor.diskUsedPercent, total: 100.0)
-                        .tint(.blue)
-                        .controlSize(.small)
-
-                    HStack {
-                        Text("CPU \(Int(monitor.cpuUsagePercent))%")
-                        Spacer()
-                        Text("RAM \(Int(monitor.memoryPressurePercent))%")
-                        Spacer()
-                        SettingsLink {
-                            Label("Ajustes", systemImage: "gearshape")
-                                .font(.system(size: 10, weight: .semibold))
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.secondary)
-                    }
-                    .font(.system(size: 10, weight: .medium, design: .monospaced))
-                    .foregroundStyle(.secondary)
+                Text("EXPLORAR").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                VStack(spacing: 6) {
+                    ForEach(CleanerChannel.explorers) { channel in navigationButton(channel) }
                 }
-                .padding(14)
-                .background(.ultraThinMaterial)
-            }
-            .navigationSplitViewColumnWidth(min: 235, ideal: 250, max: 280)
+                Spacer()
+                Menu {
+                    ForEach(CleanerChannel.otherTools) { channel in
+                        Button(channel.title, systemImage: channel.symbol) { selectedChannel = channel }
+                    }
+                } label: { Label("Ferramentas adicionais", systemImage: "ellipsis.circle") }
+                Divider()
+                Text("\(ByteFormatter.string(from: monitor.diskFreeBytes)) disponíveis").font(.caption).foregroundStyle(.secondary)
+                SettingsLink { Label("Ajustes", systemImage: "gearshape") }.buttonStyle(.plain)
+            }.padding(16)
+            .navigationSplitViewColumnWidth(min: 220, ideal: 240, max: 270)
         } detail: {
             VStack(spacing: 0) {
                 if let update = updater.availableUpdate {
-                    HStack(spacing: 12) {
-                        Image(systemName: "sparkles")
-                            .font(.headline)
-                            .foregroundStyle(.green)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text("Nova versão v\(update.version) do MeuCleaner disponível!")
-                                .font(.subheadline.weight(.bold))
-                            Text(update.title)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
+                    HStack {
+                        Text("Atualização \(update.version) disponível").font(.callout)
                         Spacer()
-                        Button {
-                            Task { await updater.downloadAndInstallUpdate() }
-                        } label: {
-                            Label(
-                                updater.isInstalling ? "Instalando..." : (updater.isDownloading ? "Baixando \(Int(updater.downloadProgress * 100))%..." : "Atualizar Agora"),
-                                systemImage: "bolt.fill"
-                            )
-                            .font(.caption.weight(.bold))
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(.green)
-                        .controlSize(.small)
-                        .disabled(updater.isDownloading || updater.isInstalling)
-
-                        Button {
-                            withAnimation { updater.availableUpdate = nil }
-                        } label: {
-                            Image(systemName: "xmark")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(Color.green.opacity(0.12))
-                    .overlay(Rectangle().frame(height: 1).foregroundStyle(Color.green.opacity(0.25)), alignment: .bottom)
+                        Button(updater.isDownloading ? "Baixando…" : "Atualizar") { Task { await updater.downloadAndInstallUpdate() } }
+                            .disabled(updater.isDownloading || updater.isInstalling)
+                    }.padding(12).background(Color.blue.opacity(0.08))
                 }
-
-                ZStack(alignment: .bottom) {
-                    Group {
-                        switch selectedChannel {
-                        case .home:
-                            HomeChannelView(
-                                scanner: scanner,
-                                monitor: monitor,
-                                selectedChannel: $selectedChannel
-                            )
-                        case .systemJunk:
-                            SystemJunkChannelView(scanner: scanner, openEnvironments: { selectedChannel = .developerStorage })
-                        case .spaceLens:
-                            SpaceLensChannelView(scanner: scanner)
-                        case .largeAndOld:
-                            LargeAndOldChannelView(scanner: scanner)
-                        case .uninstaller:
-                            UninstallerChannelView(scanner: scanner)
-                        case .leftovers:
-                            LeftoversChannelView(scanner: scanner)
-                        case .trash:
-                            TrashChannelView(scanner: scanner)
-                        case .appUpdater:
-                            AppUpdaterChannelView(scanner: scanner)
-                        case .devAndAI:
-                            DevAndAIChannelView(scanner: scanner)
-                        case .startupItems:
-                            StartupItemsChannelView(scanner: scanner)
-                        case .duplicates:
-                            DuplicatesChannelView(scanner: scanner)
-                        case .developerStorage:
-                            DeveloperStorageChannelView(scanner: scanner, reviewCaches: { selectedChannel = .systemJunk })
-                        }
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(
-                        LinearGradient(
-                            colors: [
-                                selectedChannel.accentColor.opacity(0.05),
-                                Color(nsColor: .windowBackgroundColor)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-
-                    // Toast Notification Banner when an action finishes
-                    if let status = scanner.lastStatusMessage {
-                        HStack(spacing: 10) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(.green)
-                            Text(status)
-                                .font(.caption.weight(.semibold))
-
-                            if scanner.canUndoLastCleanup {
-                                Button {
-                                    Task { await scanner.undoLastCleanup() }
-                                } label: {
-                                    Label("Desfazer", systemImage: "arrow.uturn.backward")
-                                        .font(.caption.weight(.bold))
-                                }
-                                .buttonStyle(.borderedProminent)
-                                .controlSize(.mini)
-                                .tint(.blue)
-                            }
-
-                            Button {
-                                withAnimation {
-                                    scanner.lastStatusMessage = nil
-                                }
-                            } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundStyle(.secondary)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                        .background(.regularMaterial, in: Capsule())
-                        .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
-                        .padding(.bottom, 16)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                    }
+                if !CleanerChannel.primary.contains(selectedChannel) && !CleanerChannel.explorers.contains(selectedChannel) {
+                    HStack {
+                        Button("Voltar à revisão", systemImage: "chevron.left") { selectedChannel = .developerStorage }
+                        Spacer()
+                    }.padding(.horizontal, 24).padding(.top, 12)
+                }
+                detail.frame(maxWidth: .infinity, maxHeight: .infinity)
+                if let status = scanner.lastStatusMessage {
+                    HStack(alignment: .top) {
+                        Image(systemName: "info.circle").foregroundStyle(.secondary)
+                        Text(status).font(.caption).textSelection(.enabled)
+                        Spacer()
+                        Button("Fechar aviso", systemImage: "xmark") { scanner.lastStatusMessage = nil }.labelStyle(.iconOnly)
+                    }.padding(12).background(.regularMaterial)
                 }
             }
         }
-        .sheet(item: $scanner.cleanupRequest) { request in
-            CleanupReviewSheet(scanner: scanner, request: request)
-        }
-        .task {
-            if scanner.junkItems.isEmpty && !scanner.isScanningJunk {
-                await scanner.runSmartScan()
-            }
-        }
-        .task {
-            if updater.autoCheckOnLaunch {
-                await updater.checkForUpdates(silent: true)
-            }
+        .sheet(item: $scanner.cleanupRequest) { CleanupReviewSheet(scanner: scanner, request: $0) }
+        .task { if updater.autoCheckOnLaunch { await updater.checkForUpdates(silent: true) } }
+    }
+    private func navigationButton(_ channel: CleanerChannel) -> some View {
+        Button { selectedChannel = channel } label: {
+            HStack(spacing: 10) {
+                Image(systemName: channel.symbol).foregroundStyle(channel.accentColor).frame(width: 20)
+                Text(channel.title).font(.subheadline.weight(.semibold))
+                Spacer(minLength: 0)
+            }.padding(11)
+                .background(selectedChannel == channel ? channel.accentColor.opacity(0.16) : .clear,
+                            in: RoundedRectangle(cornerRadius: 10))
+        }.buttonStyle(.plain)
+        .accessibilityAddTraits(selectedChannel == channel ? .isSelected : [])
+    }
+    @ViewBuilder private var detail: some View {
+        switch selectedChannel {
+        case .home: HomeChannelView(scanner: scanner, monitor: monitor, selectedChannel: $selectedChannel)
+        case .systemJunk, .developerStorage: DeveloperStorageChannelView(scanner: scanner, reviewCaches: { selectedChannel = .developerStorage })
+        case .history: CleanupHistoryView(scanner: scanner, selectedChannel: $selectedChannel)
+        case .spaceLens: SpaceLensChannelView(scanner: scanner)
+        case .largeAndOld: LargeAndOldChannelView(scanner: scanner)
+        case .uninstaller: UninstallerChannelView(scanner: scanner)
+        case .leftovers: LeftoversChannelView(scanner: scanner)
+        case .trash: TrashChannelView(scanner: scanner)
+        case .appUpdater: AppUpdaterChannelView(scanner: scanner)
+        case .devAndAI: DevAndAIChannelView(scanner: scanner)
+        case .startupItems: StartupItemsChannelView(scanner: scanner)
+        case .duplicates: DuplicatesChannelView(scanner: scanner)
         }
     }
 }

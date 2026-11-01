@@ -11,18 +11,21 @@ public struct DuplicatesChannelView: View {
         VStack(alignment: .leading, spacing: 16) {
             ChannelHeaderView(
                 channel: .duplicates,
-                trailingBadgeText: "\(ByteFormatter.string(from: scanner.selectedDuplicatesReclaimableBytes)) / \(ByteFormatter.string(from: scanner.totalDuplicatesReclaimableBytes))",
-                actionTitle: scanner.isScanningDuplicates ? "Comparando Hashes..." : "Buscar Duplicados",
+                trailingBadgeText: scanner.hasScannedDuplicates ? "\(scanner.duplicateGroups.count) grupos" : nil,
+                actionTitle: scanner.isScanningDuplicates ? "Comparando arquivos…" : "Buscar duplicados",
                 isLoading: scanner.isScanningDuplicates,
                 onAction: {
                     Task { await scanner.scanDuplicateFiles() }
                 }
             )
 
-            HStack {
-                Text("Algoritmo em 3 estágios: Tamanho exato em bytes → Hash parcial de 64 KB → Hash completo SHA-256.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            Text("Downloads, Filmes, Música, Imagens e Público · arquivos a partir de 1 MB. Escolha quais cópias manter antes de revisar a remoção.")
+                .font(.callout).foregroundStyle(.secondary)
+            HStack(alignment: .top) {
+                DisclosureGroup("Como os arquivos são comparados") {
+                    Text("Comparamos tamanho, uma amostra e o conteúdo completo (SHA-256). Arquivos ocultos, pacotes e a biblioteca de Fotos não entram nesta busca. Os tamanhos são dos arquivos; não representam espaço garantido após a remoção.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }.font(.caption)
 
                 Spacer()
 
@@ -30,13 +33,23 @@ public struct DuplicatesChannelView: View {
                     Button {
                         scanner.autoSelectDuplicatesKeepingNewest()
                     } label: {
-                        Label("Manter Apenas o Mais Recente", systemImage: "wand.and.stars")
+                        Label("Selecionar cópias mais antigas", systemImage: "checklist")
                             .font(.caption.weight(.semibold))
                     }
                     .buttonStyle(.bordered)
                     .tint(.teal)
                     .controlSize(.small)
                 }
+            }
+
+            if !scanner.duplicateScanIssues.isEmpty {
+                DisclosureGroup("Busca parcial · \(scanner.duplicateScanIssues.count) \(scanner.duplicateScanIssues.count == 1 ? "aviso" : "avisos") de leitura") {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(scanner.duplicateScanIssues, id: \.self) { Text($0).font(.caption).textSelection(.enabled) }
+                        }
+                    }.frame(maxHeight: 140)
+                }.font(.caption).foregroundStyle(.orange)
             }
 
             if scanner.isScanningDuplicates {
@@ -46,7 +59,7 @@ public struct DuplicatesChannelView: View {
                     VStack(spacing: 12) {
                         ProgressView()
                             .controlSize(.large)
-                        Text("Verificando impressões digitais SHA-256 nas suas pastas...")
+                        Text("Comparando o conteúdo dos arquivos… Nenhum arquivo será apagado.")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
@@ -56,15 +69,15 @@ public struct DuplicatesChannelView: View {
             } else if scanner.duplicateGroups.isEmpty {
                 Spacer()
                 ContentUnavailableView(
-                    "Nenhum arquivo duplicado encontrado",
+                    !scanner.hasScannedDuplicates ? "Busque arquivos duplicados" : (scanner.duplicateScanIssues.isEmpty ? "Nenhuma cópia idêntica encontrada" : "Nenhuma cópia identificada na parte analisada"),
                     systemImage: "doc.on.doc",
-                    description: Text("Não há arquivos idênticos (≥ 1 MB) nas pastas Downloads, Filmes, Música, Imagens e Público.")
+                    description: Text(!scanner.hasScannedDuplicates ? "A busca compara os arquivos das pastas indicadas acima." : "O resultado se limita aos arquivos que puderam ser lidos. Pastas fora desta busca não foram analisadas.")
                 )
                 Spacer()
             } else {
                 ScrollView {
                     LazyVStack(spacing: 12) {
-                        ForEach(Array(scanner.duplicateGroups.enumerated()), id: \.element.id) { groupIdx, group in
+                        ForEach(scanner.duplicateGroups) { group in
                             GlassCard(padding: 14, cornerRadius: 14) {
                                 VStack(alignment: .leading, spacing: 8) {
                                     HStack {
@@ -73,16 +86,9 @@ public struct DuplicatesChannelView: View {
                                         Text("\(group.files.count) cópias idênticas · \(ByteFormatter.string(from: group.eachFileSizeBytes)) cada")
                                             .font(.subheadline.weight(.bold))
 
-                                        Text("SHA-256: \(group.hashHex)…")
-                                            .font(.system(size: 10, weight: .medium, design: .monospaced))
-                                            .padding(.horizontal, 7)
-                                            .padding(.vertical, 2)
-                                            .background(Color.teal.opacity(0.15), in: Capsule())
-                                            .foregroundStyle(.teal)
-
                                         Spacer()
 
-                                        Text("Economia: \(ByteFormatter.string(from: group.selectedReclaimableBytes))")
+                                        Text("Selecionado: \(ByteFormatter.string(from: group.selectedReclaimableBytes))")
                                             .font(.system(.caption, design: .monospaced).weight(.bold))
                                             .foregroundStyle(.teal)
                                     }
@@ -91,10 +97,10 @@ public struct DuplicatesChannelView: View {
 
                                     ForEach(Array(group.files.enumerated()), id: \.element.id) { fileIdx, file in
                                         HStack(spacing: 10) {
-                                            Toggle("", isOn: Binding(
+                                            Toggle("Selecionar \(file.name)", isOn: Binding(
                                                 get: { file.isSelectedForRemoval },
                                                 set: { val in
-                                                    scanner.duplicateGroups[groupIdx].files[fileIdx].isSelectedForRemoval = val
+                                                    scanner.setDuplicateSelection(groupID: group.id, fileID: file.id, selected: val)
                                                 }
                                             ))
                                             .toggleStyle(.checkbox)
@@ -156,13 +162,13 @@ public struct DuplicatesChannelView: View {
             }
 
             HStack {
-                SafetyNoticePill(text: "Pelo menos 1 cópia original é sempre preservada. As cópias marcadas vão para a Lixeira primeiro.")
+                SafetyNoticePill(text: "Mantenha pelo menos uma cópia de cada grupo. A próxima etapa mostra os itens e o destino.")
                 Spacer()
                 Button {
                     Task { _ = await scanner.cleanSelectedDuplicates() }
                 } label: {
                     Label(
-                        "Remover Cópias Duplicadas (\(ByteFormatter.string(from: scanner.selectedDuplicatesReclaimableBytes)))",
+                        "Revisar cópias (\(ByteFormatter.string(from: scanner.selectedDuplicatesReclaimableBytes)))",
                         systemImage: "trash"
                     )
                     .fontWeight(.semibold)
@@ -171,12 +177,12 @@ public struct DuplicatesChannelView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(.teal)
-                .disabled(scanner.selectedDuplicatesReclaimableBytes == 0 || scanner.isScanningDuplicates)
+                .disabled(scanner.selectedDuplicatesReclaimableBytes == 0 || scanner.isScanningDuplicates || scanner.isScanningJunk || scanner.isCleaningJunk || scanner.isRestoring)
             }
         }
         .padding(24)
         .task {
-            if scanner.duplicateGroups.isEmpty && !scanner.isScanningDuplicates {
+            if !scanner.hasScannedDuplicates && !scanner.isScanningDuplicates {
                 await scanner.scanDuplicateFiles()
             }
         }

@@ -11,7 +11,7 @@ public struct TrashChannelView: View {
         VStack(alignment: .leading, spacing: 16) {
             ChannelHeaderView(
                 channel: .trash,
-                trailingBadgeText: ByteFormatter.string(from: scanner.totalTrashBytes),
+                trailingBadgeText: scanner.hasScannedTrash ? ByteFormatter.string(from: scanner.totalTrashBytes) : "Não verificado",
                 actionTitle: scanner.isScanningTrash ? "Lendo..." : "Atualizar Lixeira",
                 isLoading: scanner.isScanningTrash,
                 onAction: {
@@ -27,12 +27,20 @@ public struct TrashChannelView: View {
                     Spacer()
                 }
                 Spacer()
+            } else if !scanner.hasScannedTrash {
+                ContentUnavailableView("Não foi possível verificar a Lixeira", systemImage: "lock",
+                    description: Text(scanner.trashScanIssue ?? "Atualize a análise para verificar o conteúdo. Nenhum tamanho foi confirmado."))
+                Text("Sem acesso não significa vazio. Você pode conferir os itens diretamente no Finder.").font(.callout).foregroundStyle(.secondary)
+                Button("Abrir Lixeira no Finder") {
+                    NSWorkspace.shared.open(FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".Trash"))
+                }
+                Spacer()
             } else if scanner.trashItems.isEmpty {
                 Spacer()
                 ContentUnavailableView(
                     "Sua Lixeira está vazia",
                     systemImage: "trash.slash",
-                    description: Text("Quando você limpa itens nos outros canais do MeuCleaner, eles vêm para cá primeiro.")
+                    description: Text("Os itens removidos com o destino Lixeira aparecem aqui. Exclusões permanentes não passam pela Lixeira.")
                 )
                 Spacer()
             } else {
@@ -95,10 +103,10 @@ public struct TrashChannelView: View {
                 Spacer()
 
                 HoldToConfirmButton(
-                    title: "Segure para Esvaziar (\(ByteFormatter.string(from: scanner.totalTrashBytes)))",
+                    title: scanner.hasScannedTrash ? "Segure para Esvaziar (\(ByteFormatter.string(from: scanner.totalTrashBytes)))" : "Verifique a Lixeira primeiro",
                     symbol: "flame.fill",
                     holdDuration: 1.5,
-                    isDisabled: scanner.trashItems.isEmpty
+                    isDisabled: !scanner.hasScannedTrash || scanner.isScanningTrash || scanner.trashItems.isEmpty || scanner.isCleaningJunk || scanner.isRestoring
                 ) {
                     Task {
                         await scanner.emptyTrashPermanently()

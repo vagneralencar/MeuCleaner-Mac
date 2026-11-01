@@ -18,16 +18,8 @@ public struct SettingsView: View {
                         Text("Destino Padrão da Limpeza")
                             .font(.headline)
 
-                        Picker("Destino:", selection: $scanner.removalMode) {
-                            ForEach(RemovalMode.allCases) { mode in
-                                Text(mode.title).tag(mode)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-
-                        Text(scanner.removalMode.subtitle)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        Text("A revisão começa com a Lixeira. Você escolhe e confirma o destino em cada operação. Exclusão permanente exige confirmação; Docker não usa a Lixeira.")
+                            .font(.callout).foregroundStyle(.secondary)
                     }
                 }
 
@@ -35,7 +27,7 @@ public struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 10) {
                         Toggle(isOn: $scanner.trashWatcherEnabled) {
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("Vigia da Lixeira (Auto-Detect Uninstall)")
+                                Text("Restos de aplicativos na Lixeira")
                                     .font(.headline)
                                 Text("Detecta automaticamente quando um .app é jogado na Lixeira pelo Finder e oferece limpar os restos órfãos na ~/Library.")
                                     .font(.caption)
@@ -53,9 +45,9 @@ public struct SettingsView: View {
                             .foregroundStyle(scanner.hasFullDiskAccess ? .green : .blue)
 
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Acesso Total ao Disco")
+                            Text("Permissões de leitura")
                                 .font(.headline)
-                            Text(scanner.hasFullDiskAccess ? "Liberado — o MeuCleaner enxerga todos os containers e caches." : "Opcional — libere nos Ajustes do Sistema para varreduras completas.")
+                            Text(scanner.hasFullDiskAccess ? "Alguns acessos estão disponíveis. Confira a cobertura e os avisos de cada análise." : "Opcional — permita ler áreas protegidas nos Ajustes. Isso não garante uma análise de todo o disco.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -74,11 +66,11 @@ public struct SettingsView: View {
                 Spacer()
 
                 HStack {
-                    Text("MeuCleaner Pro v\(updater.currentVersion) (Build \(updater.currentBuild))")
+                    Text("MeuCleaner v\(updater.currentVersion) (Build \(updater.currentBuild))")
                         .font(.system(size: 11, weight: .semibold, design: .monospaced))
                         .foregroundStyle(.secondary)
                     Spacer()
-                    Text("Safe by default · 100% Local")
+                    Text("Dados da análise neste Mac")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }

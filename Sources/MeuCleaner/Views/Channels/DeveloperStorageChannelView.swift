@@ -3,81 +3,92 @@ import SwiftUI
 struct DeveloperStorageChannelView: View {
     @ObservedObject var scanner: DiskScannerService
     let reviewCaches: () -> Void
-    @State private var environment: StorageEnvironment = .chrome
-
+    @State private var environment: StorageEnvironment?
+    @State private var search = ""
+    @State private var selection: Set<String> = []
+    @State private var expanded: Set<ReviewGroup> = [.recommended, .attention, .unknown]
     private var report: StorageReport { scanner.storageReport }
-    private var items: [StorageFinding] { report.findings(in: environment) }
-
+    private var items: [StorageFinding] {
+        report.findings.filter { item in
+            let group = StorageEnvironment.classify(item)
+            let matches = environment == nil || group == environment || (environment == .other && group == nil)
+            return matches && (search.isEmpty || item.displayTitle.localizedCaseInsensitiveContains(search) || item.url.path.localizedCaseInsensitiveContains(search))
+        }
+    }
+    private var chosen: [StorageFinding] { report.findings.filter { selection.contains($0.id) && $0.canReviewRemoval } }
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             ChannelHeaderView(channel: .developerStorage,
-                              actionTitle: scanner.isScanningJunk ? "Analisando..." : "Atualizar análise",
-                              isLoading: scanner.isScanningJunk) {
-                Task { await scanner.runSmartScan() }
+                              actionTitle: scanner.isScanningJunk ? "Analisando…" : "Analisar novamente",
+                              isLoading: scanner.isScanningJunk) { Task { await scanner.runSmartScan() } }
+            HStack {
+                Picker("Aplicativo", selection: $environment) {
+                    Text("Todos").tag(StorageEnvironment?.none)
+                    ForEach(StorageEnvironment.allCases) { Text($0.rawValue).tag(Optional($0)) }
+                }.pickerStyle(.segmented)
+                TextField("Buscar item", text: $search).textFieldStyle(.roundedBorder).frame(maxWidth: 190)
             }
-            Picker("Ambiente", selection: $environment) {
-                ForEach(StorageEnvironment.allCases) { group in
-                    Text(group.rawValue).tag(group)
-                }
-            }
-            .pickerStyle(.segmented)
-
-            Text("1 · Analise   →   2 · Revise os itens   →   3 · Confirme a limpeza. O uso será verificado novamente antes de apagar.")
-                .font(.caption).foregroundStyle(.secondary)
-
-            if scanner.isScanningJunk {
-                HStack {
-                    ProgressView().controlSize(.small)
-                    Text(scanner.lastScanDurationSeconds == nil ? "Consultando ferramentas e medindo arquivos..." : "Atualizando; os dados abaixo são da análise anterior.")
-                        .font(.caption)
-                }
-            }
-
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    if environment == .chrome {
-                        GlassCard(padding: 16) {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text(scanner.lastScanDurationSeconds == nil ? "Buscando cópias temporárias do Chrome..." : "Cópias temporárias do Chrome · \(items.count) encontradas").font(.headline)
-                                Text("São cópias do aplicativo, não seu perfil, senhas ou favoritos. Cada cópia será conferida novamente antes de remover.")
-                                Text("Ganho de espaço desconhecido: as cópias APFS compartilham blocos. Os tamanhos individuais não devem ser somados como espaço recuperável.").foregroundStyle(.secondary)
-                            }.font(.callout)
-                        }
-                    }
-                    if environment == .docker { dockerSummary }
-                    if environment == .xcode { runtimeSummary }
+                LazyVStack(alignment: .leading, spacing: 18) {
+                    CoverageSummary(scanner: scanner)
                     if scanner.lastScanDurationSeconds != nil {
-                        inventory
-                    }
-                    if !report.issues.isEmpty {
-                        GlassCard(padding: 14) {
-                            VStack(alignment: .leading, spacing: 6) {
-                                Label("Cobertura incompleta · \(report.issues.count) avisos", systemImage: "exclamationmark.triangle")
-                                    .font(.subheadline.weight(.semibold)).foregroundStyle(.orange)
-                                DisclosureGroup("Ver locais não verificados") {
-                                    ForEach(report.issues, id: \.self) { issue in
-                                        Text(issue).font(.caption).frame(maxWidth: .infinity, alignment: .leading)
-                                    }
-                                }
+                        if environment == nil || environment == .docker { dockerSummary }
+                        if environment == .xcode {
+                            DisclosureGroup("Runtimes de simuladores · preservados") { runtimeSummary }
+                        }
+                        if items.isEmpty {
+                            ContentUnavailableView("Nenhum resultado neste filtro", systemImage: "magnifyingglass",
+                                description: Text("Ajuste a busca ou confira os locais analisados. Isso não confirma que o aplicativo não ocupe espaço."))
+                        }
+                        ForEach(ReviewGroup.allCases) { group in
+                            let grouped = items.filter { group.contains($0) }
+                            if !grouped.isEmpty {
+                                DisclosureGroup(isExpanded: Binding(get: { expanded.contains(group) }, set: {
+                                    if $0 { expanded.insert(group) } else { expanded.remove(group) }
+                                })) {
+                                    VStack(spacing: 12) {
+                                        ForEach(grouped) { item in
+                                            GlassCard {
+                                                HStack(alignment: .top, spacing: 12) {
+                                                    Toggle("Selecionar \(item.displayTitle)", isOn: Binding(
+                                                        get: { selection.contains(item.id) },
+                                                        set: { if $0 && item.canReviewRemoval { selection.insert(item.id) } else { selection.remove(item.id) } }
+                                                    )).labelsHidden().toggleStyle(.checkbox)
+                                                        .disabled(!item.canReviewRemoval || scanner.isScanningJunk || scanner.isCleaningJunk)
+                                                    StorageFindingRow(item: item)
+                                                }
+                                            }
+                                        }
+                                    }.padding(.top, 10)
+                                } label: { Text("\(group.rawValue) · \(grouped.count)").font(.headline) }
                             }
                         }
+                    } else if !scanner.isScanningJunk {
+                        ContentUnavailableView("Comece analisando o Mac", systemImage: "sparkles",
+                            description: Text("A análise encontra dados, verifica o uso e não apaga arquivos."))
                     }
-                }.frame(maxWidth: .infinity, alignment: .leading)
+                }.padding(.vertical, 4)
             }
+            Divider()
             HStack {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("\(items.filter(\.canReviewRemoval).count) itens disponíveis para revisão")
-                    Text("Itens em uso, projetos e dados protegidos ficam bloqueados.").foregroundStyle(.secondary)
-                }.font(.caption)
-                Spacer()
-                Button("Revisar e limpar") {
-                    scanner.review(items, title: environment.rawValue)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(chosen.count == 1 ? "1 item selecionado" : "\(chosen.count) itens selecionados").font(.headline)
+                    Text("A próxima etapa mostra o destino. Nenhum arquivo foi apagado.").font(.caption).foregroundStyle(.secondary)
+                    HStack {
+                        Button("Selecionar recomendados deste filtro") {
+                            selection.formUnion(items.filter { $0.disposition == .candidate && $0.canReviewRemoval }.map(\.id))
+                        }
+                        Button("Desmarcar tudo") { selection.removeAll() }
+                    }.controlSize(.small).disabled(scanner.isScanningJunk || scanner.isCleaningJunk)
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(items.isEmpty || scanner.isScanningJunk || scanner.isCleaningJunk)
+                Spacer()
+                Button("Revisar \(chosen.count) \(chosen.count == 1 ? "item" : "itens")") {
+                    scanner.review(chosen, title: "Arquivos selecionados", selection: Set(chosen.map(\.id)))
+                }.buttonStyle(.borderedProminent)
+                    .disabled(chosen.isEmpty || scanner.isScanningJunk || scanner.isCleaningJunk)
             }
-        }
-        .padding(24)
+        }.padding(24)
+        .onChange(of: report.scannedAt) { _, _ in selection.removeAll() }
     }
 
     private var dockerSummary: some View {
@@ -88,7 +99,7 @@ struct DeveloperStorageChannelView: View {
                     HStack {
                         Button("Revisar \(inventory.images.filter(\.canRemove).count) imagens sem containers") {
                             scanner.cleanupRequest = CleanupRequest(title: "Imagens Docker", target: .images(inventory))
-                        }.disabled(scanner.isScanningJunk || scanner.isCleaningJunk)
+                        }.disabled(inventory.images.filter(\.canRemove).isEmpty || scanner.isScanningJunk || scanner.isCleaningJunk)
                         Button("Revisar cache de builds") {
                             scanner.cleanupRequest = CleanupRequest(title: "Cache de builds Docker", target: .buildCache(inventory))
                         }.disabled(inventory.oldCaches.isEmpty || scanner.isScanningJunk || scanner.isCleaningJunk)
@@ -98,6 +109,13 @@ struct DeveloperStorageChannelView: View {
                     }
                 } else {
                     Text("Limpeza Docker indisponível até validar o inventário e o destino local.").font(.caption).foregroundStyle(.orange)
+                    Text(report.dockerNote).font(.caption).foregroundStyle(.secondary)
+                    Text("Confira se o Docker Desktop está aberto e tente analisar novamente. O MeuCleaner não inicia serviços automaticamente.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                DisclosureGroup("Ocupação e limites do Docker") {
+                ForEach(report.issues.filter { $0.localizedCaseInsensitiveContains("docker") }, id: \.self) { issue in
+                    Text(issue).font(.caption).foregroundStyle(.orange)
                 }
                 ForEach(report.dockerRows) { row in
                     HStack(alignment: .top) {
@@ -111,6 +129,7 @@ struct DeveloperStorageChannelView: View {
                             Text("Estimativa recuperável: \(row.reclaimable)").font(.caption).foregroundStyle(.secondary)
                         }
                     }
+                }
                 }
                 Text("Imagens só são removidas após sua escolha e nova verificação de containers ativos e parados. Volumes e containers não são apagados por este fluxo.").font(.caption).foregroundStyle(.secondary)
                 Text("O disco virtual abaixo contém estes dados. Não some os dois tamanhos. Volumes podem guardar bancos de dados, mesmo quando não estão em uso.")
@@ -138,33 +157,4 @@ struct DeveloperStorageChannelView: View {
         }
     }
 
-    private var inventory: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("\(environment.rawValue) · arquivos e dados locais (\(items.count))").font(.headline)
-            if items.isEmpty {
-                Text("Nenhum local com espaço ocupado foi identificado nesta categoria. Consulte os avisos de acesso: isso não confirma ausência de dados em locais não verificados.")
-                    .font(.callout).foregroundStyle(.secondary)
-            }
-            ForEach(items) { item in
-                GlassCard(padding: 14) {
-                    HStack(alignment: .top, spacing: 12) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(item.title).font(.subheadline.weight(.semibold))
-                            Text(item.disposition.rawValue).font(.caption.weight(.semibold))
-                                .foregroundStyle(item.disposition.allowsSelection ? Color.orange : Color.secondary)
-                            Text(item.reason).font(.caption).foregroundStyle(.secondary)
-                            Text(item.url.path).font(.caption2).foregroundStyle(.secondary).textSelection(.enabled)
-                        }
-                        Spacer()
-                        VStack(alignment: .trailing, spacing: 6) {
-                            Text(ByteFormatter.string(from: item.measurement.allocatedBytes)).monospacedDigit()
-                            if !item.measurement.complete { Text("Leitura parcial").font(.caption2) }
-                            Button("Finder") { NSWorkspace.shared.activateFileViewerSelecting([item.url]) }
-                                .controlSize(.small)
-                        }
-                    }
-                }
-            }
-        }
-    }
 }

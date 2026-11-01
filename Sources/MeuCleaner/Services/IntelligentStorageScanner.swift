@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 struct IntelligentStorageScanner {
     let home: URL
@@ -25,23 +26,48 @@ struct IntelligentStorageScanner {
         scanner.scanSimulatorRuntimes()
         scanner.report.findings.sort { $0.measurement.allocatedBytes > $1.measurement.allocatedBytes }
         scanner.report.issues = Array(Set(scanner.report.issues)).sorted()
+        scanner.report.scannedAt = Date()
         return scanner.report
     }
 
     mutating func children(_ url: URL) -> [URL] {
-        guard FileManager.default.fileExists(atPath: url.path) else { return [] }
+        guard probe(url) else { return [] }
         if ["Downloads", ".Trash", "Library/Mail", "Library/Messages"].contains(where: { home.appendingPathComponent($0).standardizedFileURL == url.standardizedFileURL }) {
             let listing = StorageDirectory.list(url)
             if let issue = listing.issue { report.issues.append(issue) }
+            recordLocation(url, listing.issue != nil ? .unknown : listing.urls.isEmpty ? .empty : .listed)
             return listing.urls
         }
-        do { return try FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil) }
-        catch { report.issues.append("Sem acesso a \(url.path): \(error.localizedDescription)"); return [] }
+        do {
+            let urls = try FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)
+            recordLocation(url, urls.isEmpty ? .empty : .listed)
+            return urls
+        } catch {
+            recordLocation(url, .unknown)
+            report.issues.append("Sem acesso a \(url.path): \(error.localizedDescription)"); return []
+        }
+    }
+
+    private mutating func recordLocation(_ url: URL, _ state: LocationState) {
+        let check = LocationCheck(path: url.path, state: state)
+        if let index = report.locationChecks.firstIndex(where: { $0.path == url.path }) { report.locationChecks[index] = check }
+        else { report.locationChecks.append(check) }
+    }
+    private mutating func probe(_ url: URL) -> Bool {
+        var value = stat()
+        if lstat(url.path, &value) == 0 { return true }
+        if errno == ENOENT || errno == ENOTDIR { recordLocation(url, .absent) }
+        else {
+            recordLocation(url, .unknown)
+            report.issues.append("Não foi possível verificar: \(url.path)")
+        }
+        return false
     }
 
     mutating func append(_ url: URL, title: String, category: JunkCategory?, review: Bool = false, preserve: String? = nil, shared: Bool = false) {
-        guard FileManager.default.fileExists(atPath: url.path), seen.insert(url.standardizedFileURL.path).inserted else { return }
+        guard probe(url), seen.insert(url.standardizedFileURL.path).inserted else { return }
         let measurement = StorageMeter.measure(url)
+        recordLocation(url, !measurement.complete ? .unknown : measurement.allocatedBytes == 0 ? .empty : .measured)
         report.issues.append(contentsOf: measurement.issues)
         guard measurement.allocatedBytes > 0 || !measurement.complete else { return }
         var disposition: StorageDisposition = review ? .review : .candidate
@@ -89,6 +115,18 @@ struct IntelligentStorageScanner {
             ("Library/Developer/CoreSimulator/Caches", "Cache de simuladores")
         ]
         for (path, title) in cachePaths { append(home.appendingPathComponent(path), title: title, category: .devCaches) }
+        let additionalCaches = [
+            (".npm/_npx", "Pacotes temporários do npm/npx"),
+            (".gradle/wrapper", "Distribuições do Gradle"),
+            (".expo/ios-simulator-app-cache", "Cache do Expo para iOS"),
+            (".expo/expo-go", "Downloads do Expo Go"),
+            ("Library/Application Support/Claude/Cache", "Cache do Claude"),
+            ("Library/Application Support/Claude/Code Cache", "Cache de código do Claude"),
+            ("Library/Application Support/Cursor/CachedData", "Cache de código do Cursor")
+        ]
+        for (path, title) in additionalCaches {
+            append(home.appendingPathComponent(path), title: title, category: .devCaches, review: true)
+        }
         for child in children(home.appendingPathComponent(".cache")) {
             let keep = ["codex-runtimes", "huggingface", "lm-studio"].contains(child.lastPathComponent)
             append(child, title: "~/.cache/\(child.lastPathComponent)", category: .dotCache, review: true,
@@ -108,6 +146,10 @@ struct IntelligentStorageScanner {
             }
         }
         let inventories: [(String, String, String)] = [
+            ("Library/Application Support/Google/Chrome", "Dados e perfis do Chrome", "Contém perfis, preferências e componentes instalados; preservar."),
+            ("Library/Application Support/Google/Chrome/OptGuideOnDeviceModel", "Modelo local do Chrome", "Modelo instalado para recursos do navegador; não é uma cópia temporária."),
+            ("Library/Application Support/Claude", "Dados do Claude", "Inclui máquina virtual, histórico e configurações; preservar a pasta completa."),
+            ("Library/Application Support/Cursor", "Dados do Cursor", "Inclui histórico, configurações e dados dos projetos; preservar a pasta completa."),
             ("Library/Developer/CoreSimulator/Devices", "Dados dos simuladores iOS", "Desligado não significa descartável: contém aplicativos e dados de testes."),
             (".android/avd", "Emuladores Android", "Contém dados e snapshots de emuladores; preservar mesmo quando desligados."),
             ("Library/Developer/Xcode/Archives", "Arquivos de distribuição Xcode", "Archives e símbolos de distribuição preservados."),

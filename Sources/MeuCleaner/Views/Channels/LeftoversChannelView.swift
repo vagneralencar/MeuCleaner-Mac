@@ -33,7 +33,7 @@ public struct LeftoversChannelView: View {
                     .buttonStyle(.bordered)
                     .controlSize(.small)
 
-                    Button("Limpar Seleção") {
+                    Button("Desmarcar seleção") {
                         for idx in scanner.leftoverGroups.indices {
                             scanner.leftoverGroups[idx].isSelected = false
                         }
@@ -148,7 +148,7 @@ public struct LeftoversChannelView: View {
                     }
                 } label: {
                     Label(
-                        "Mover Selecionados para a Lixeira (\(ByteFormatter.string(from: scanner.selectedLeftoversBytes)))",
+                        "Revisar seleção (\(ByteFormatter.string(from: scanner.selectedLeftoversBytes)))",
                         systemImage: "trash"
                     )
                     .fontWeight(.semibold)

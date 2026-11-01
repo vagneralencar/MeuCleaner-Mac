@@ -19,6 +19,7 @@ struct StorageFinding: Identifiable, Sendable {
     let reason: String
     let sharedBlocks: Bool
     let identity: FileIdentity?
+    var explicitRemovalConsequence: String? = nil
 }
 
 struct DockerStorageRow: Identifiable, Sendable {
@@ -48,6 +49,7 @@ struct SimulatorRuntimeRow: Identifiable, Sendable {
 
 struct StorageReport: Sendable {
     var findings: [StorageFinding] = []
+    var locationChecks: [LocationCheck] = []
     var issues: [String] = []
     var simulatorRuntimes: [SimulatorRuntimeRow] = []
     var simulatorNote = "Runtimes ainda não consultados."
@@ -58,7 +60,7 @@ struct StorageReport: Sendable {
     var scannedAt = Date()
     // Inventory data and APFS clones are never added to the estimate of cleanup candidates.
     var candidateMeasuredBytes: Int64 {
-        findings.filter { $0.disposition == .candidate && !$0.sharedBlocks }.reduce(0) { $0 + $1.measurement.allocatedBytes }
+        findings.filter { $0.disposition == .candidate && $0.canReviewRemoval && !$0.sharedBlocks }.reduce(0) { $0 + $1.measurement.allocatedBytes }
     }
     var junkItems: [JunkItem] {
         findings.compactMap { item in
@@ -67,7 +69,7 @@ struct StorageReport: Sendable {
                             sizeBytes: item.measurement.allocatedBytes,
                             isRunningApp: item.disposition == .inUse,
                             note: "\(item.disposition.rawValue): \(item.reason)",
-                            isSelected: item.disposition == .candidate && !item.sharedBlocks,
+                            isSelected: false,
                             canClean: item.disposition.allowsSelection,
                             sharedBlocks: item.sharedBlocks, identity: item.identity)
         }
@@ -86,6 +88,7 @@ enum StorageEnvironment: String, CaseIterable, Identifiable {
     static func classify(_ item: StorageFinding, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> StorageEnvironment? {
         if item.category == .browserClones { return .chrome }
         let groups: [(StorageEnvironment, [String])] = [
+            (.chrome, ["Library/Application Support/Google/Chrome", "Library/Caches/Google/Chrome"]),
             (.docker, ["Library/Containers/com.docker.docker", "Library/Group Containers/group.com.docker", "Library/Application Support/com.docker.install", "Library/Caches/com.docker.docker"]),
             (.xcode, ["Library/Developer/Xcode", "Library/Developer/CoreSimulator", "Library/Caches/com.apple.dt.Xcode"]),
             (.android, [".android", ".gradle", "Library/Android", "Library/Caches/Google/AndroidStudio"])
