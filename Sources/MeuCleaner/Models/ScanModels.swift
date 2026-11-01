@@ -55,6 +55,8 @@ public enum JunkCategory: String, CaseIterable, Identifiable, Sendable {
     case devCaches = "Caches de desenvolvimento"
     case dotCache = "Outros caches (~/.cache)"
     case incompleteDownloads = "Downloads incompletos"
+    case browserClones = "Cópias temporárias do Chrome"
+    case installers = "Instaladores"
 
     public var id: String { rawValue }
 
@@ -66,6 +68,8 @@ public enum JunkCategory: String, CaseIterable, Identifiable, Sendable {
         case .devCaches: return "terminal.fill"
         case .dotCache: return "folder.badge.questionmark"
         case .incompleteDownloads: return "arrow.down.circle.dotted"
+        case .browserClones: return "doc.on.doc"
+        case .installers: return "opticaldisc"
         }
     }
 
@@ -83,12 +87,14 @@ public enum JunkCategory: String, CaseIterable, Identifiable, Sendable {
             return "Caches de ferramentas de linha de comando. Pode incluir modelos baixados, então revise antes."
         case .incompleteDownloads:
             return "Downloads interrompidos que ficaram na pasta Downloads."
+        case .browserClones: return "Cópias do aplicativo; blocos APFS podem ser compartilhados."
+        case .installers: return "Pacotes baixados que exigem revisão antes da remoção."
         }
     }
 
     public var selectedByDefault: Bool {
         switch self {
-        case .dotCache:
+        case .dotCache, .browserClones, .installers:
             // Per CleanUai's JunkRule.defaults, ~/.cache is unchecked by default for safety
             return false
         default:
@@ -104,6 +110,9 @@ public struct JunkItem: Identifiable, Hashable, Sendable {
     public let category: JunkCategory
     public let sizeBytes: Int64
     public let isRunningApp: Bool
+    public let canClean: Bool
+    public let sharedBlocks: Bool
+    public let identity: FileIdentity?
     public let note: String?
     public var isSelected: Bool
 
@@ -115,7 +124,10 @@ public struct JunkItem: Identifiable, Hashable, Sendable {
         sizeBytes: Int64,
         isRunningApp: Bool = false,
         note: String? = nil,
-        isSelected: Bool? = nil
+        isSelected: Bool? = nil,
+        canClean: Bool = true,
+        sharedBlocks: Bool = false,
+        identity: FileIdentity? = nil
     ) {
         self.id = id
         self.url = url
@@ -123,11 +135,14 @@ public struct JunkItem: Identifiable, Hashable, Sendable {
         self.category = category
         self.sizeBytes = sizeBytes
         self.isRunningApp = isRunningApp
+        self.canClean = canClean && !isRunningApp
+        self.sharedBlocks = sharedBlocks
+        self.identity = identity
         self.note = note ?? (isRunningApp ? "App aberto" : (category == .dotCache ? "Revisar" : nil))
         if let explicit = isSelected {
-            self.isSelected = explicit
+            self.isSelected = explicit && self.canClean
         } else {
-            self.isSelected = isRunningApp ? false : category.selectedByDefault
+            self.isSelected = self.canClean && category.selectedByDefault
         }
     }
 }
@@ -554,12 +569,11 @@ public struct DevArtifactItem: Identifiable, Hashable, Sendable {
         self.category = category
         self.sizeBytes = sizeBytes
         self.lastModified = lastModified
-        let days = max(0, Calendar.current.dateComponents([.day], from: lastModified, to: Date()).day ?? 0)
-        // Automatically pre-select build artifacts older than 30 days, but never pre-select AI models
+        // Project artifacts and models require review; never infer safety from age.
         if let explicit = isSelected {
             self.isSelected = explicit
         } else {
-            self.isSelected = (category != .aiModels) && (days >= 30)
+            self.isSelected = false // Age alone does not prove that a project artifact is disposable.
         }
     }
 

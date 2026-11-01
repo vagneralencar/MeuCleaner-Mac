@@ -4,8 +4,10 @@ public struct SystemJunkChannelView: View {
     @ObservedObject public var scanner: DiskScannerService
     @State private var selectedCategory: JunkCategory? = nil
 
-    public init(scanner: DiskScannerService) {
+    private let openEnvironments: () -> Void
+    public init(scanner: DiskScannerService, openEnvironments: @escaping () -> Void = {}) {
         self.scanner = scanner
+        self.openEnvironments = openEnvironments
     }
 
     private var filteredItems: [JunkItem] {
@@ -24,6 +26,12 @@ public struct SystemJunkChannelView: View {
                     Task { await scanner.scanSystemJunk() }
                 }
             )
+
+            Text("Tamanhos medidos, não espaço garantido. * Cópias APFS podem compartilhar blocos. Itens em uso ou não verificados ficam bloqueados.")
+                .font(.caption).foregroundStyle(.secondary)
+
+            Button("Revisar por categoria: Chrome, Docker, Xcode e Android", action: openEnvironments)
+                .buttonStyle(.bordered)
 
             // Category Filter Pills
             ScrollView(.horizontal, showsIndicators: false) {
@@ -72,9 +80,9 @@ public struct SystemJunkChannelView: View {
             } else if filteredItems.isEmpty {
                 Spacer()
                 ContentUnavailableView(
-                    "Nem um farelo de pão de queijo.",
+                    "Nenhum item nesta lista",
                     systemImage: "sparkles",
-                    description: Text("Nenhum cache, log ou download pela metade sobrando no seu Mac.")
+                    description: Text("Consulte Docker e SDKs e os avisos da análise. Uma lista vazia não significa que todos os locais foram verificados.")
                 )
                 Spacer()
             } else {
@@ -87,12 +95,13 @@ public struct SystemJunkChannelView: View {
                                         get: { item.isSelected },
                                         set: { newValue in
                                             if let idx = scanner.junkItems.firstIndex(where: { $0.id == item.id }) {
-                                                scanner.junkItems[idx].isSelected = newValue
+                                                scanner.junkItems[idx].isSelected = newValue && item.canClean
                                             }
                                         }
                                     ))
                                     .toggleStyle(.checkbox)
                                     .labelsHidden()
+                                    .disabled(!item.canClean || scanner.isCleaningJunk)
 
                                     Image(systemName: item.category.symbol)
                                         .font(.system(size: 16, weight: .medium))
@@ -122,7 +131,7 @@ public struct SystemJunkChannelView: View {
 
                                     Spacer()
 
-                                    Text(ByteFormatter.string(from: item.sizeBytes))
+                                    Text(ByteFormatter.string(from: item.sizeBytes) + (item.sharedBlocks ? " *" : ""))
                                         .font(.system(.subheadline, design: .monospaced).weight(.bold))
 
                                     Button {
@@ -142,52 +151,16 @@ public struct SystemJunkChannelView: View {
                 }
             }
 
-            // Bottom Action Bar with Removal Mode Picker
-            HStack(spacing: 14) {
-                Picker("Destino:", selection: $scanner.removalMode) {
-                    ForEach(RemovalMode.allCases) { mode in
-                        Text(mode.title).tag(mode)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 320)
-
-                Text(scanner.removalMode.subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-
+            HStack {
+                Text("Revise o destino e o motivo de cada item antes de limpar.")
+                    .font(.caption).foregroundStyle(.secondary)
                 Spacer()
-
-                if scanner.removalMode == .trash {
-                    Button {
-                        Task {
-                            _ = await scanner.cleanSelectedJunk()
-                        }
-                    } label: {
-                        Label(
-                            "Limpar (\(ByteFormatter.string(from: scanner.selectedJunkBytes)))",
-                            systemImage: "trash"
-                        )
-                        .fontWeight(.semibold)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.orange)
-                    .disabled(scanner.selectedJunkBytes == 0 || scanner.isScanningJunk)
-                } else {
-                    HoldToConfirmButton(
-                        title: "Segure p/ Apagar (\(ByteFormatter.string(from: scanner.selectedJunkBytes)))",
-                        symbol: "flame.fill",
-                        holdDuration: 1.0,
-                        isDisabled: scanner.selectedJunkBytes == 0 || scanner.isScanningJunk
-                    ) {
-                        Task {
-                            _ = await scanner.cleanSelectedJunk()
-                        }
-                    }
+                Button("Revisar seleção") {
+                    let paths = Set(scanner.junkItems.filter { $0.isSelected && $0.canClean }.map { $0.url.path })
+                    scanner.review(scanner.storageReport.findings.filter { paths.contains($0.id) }, title: "Arquivos e caches")
                 }
+                .buttonStyle(.borderedProminent)
+                .disabled(!scanner.junkItems.contains { $0.isSelected && $0.canClean } || scanner.isScanningJunk || scanner.isCleaningJunk)
             }
         }
         .padding(24)

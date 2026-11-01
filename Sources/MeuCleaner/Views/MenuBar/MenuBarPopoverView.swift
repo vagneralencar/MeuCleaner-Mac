@@ -143,14 +143,17 @@ public struct MenuBarPopoverView: View {
             VStack(spacing: 8) {
                 HStack(spacing: 8) {
                     Button {
+                        openWindow(id: "main")
+                        NSApp.activate(ignoringOtherApps: true)
                         Task {
+                            await Task.yield()
                             if scanner.junkItems.isEmpty {
                                 await scanner.scanSystemJunk()
                             }
-                            _ = await scanner.cleanSelectedJunk()
+                            scanner.review(scanner.storageReport.findings.filter { $0.category != nil }, title: "Arquivos e caches")
                         }
                     } label: {
-                        Label("Limpar Lixo", systemImage: "sparkles")
+                        Label("Revisar limpeza", systemImage: "checklist")
                             .font(.caption.weight(.semibold))
                             .frame(maxWidth: .infinity)
                     }

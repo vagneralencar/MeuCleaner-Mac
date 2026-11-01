@@ -68,21 +68,9 @@ extension DiskScannerService {
         return cleaned
     }
 
-    public func purgeUnavailableXcodeSimulators() async {
-        let xcrunURL = URL(fileURLWithPath: "/usr/bin/xcrun")
-        guard FileManager.default.isExecutableFile(atPath: xcrunURL.path) else {
-            lastStatusMessage = "xcrun não encontrado neste Mac."
-            return
-        }
-        lastStatusMessage = "Limpando simuladores indisponíveis do Xcode..."
-        await Task.detached {
-            let proc = Process()
-            proc.executableURL = xcrunURL
-            proc.arguments = ["simctl", "delete", "unavailable"]
-            try? proc.run()
-            proc.waitUntilExit()
-        }.value
-        lastStatusMessage = "Simuladores antigos/indisponíveis do Xcode removidos com sucesso!"
+    public func inspectXcodeSimulators() async {
+        await scanSystemJunk()
+        lastStatusMessage = "Simuladores e seus dados foram preservados. Consulte o diagnóstico na Varredura Inteligente; indisponível não significa descartável."
     }
 
     private nonisolated static func scanDevAndAIOffMain() async -> [DevArtifactItem] {

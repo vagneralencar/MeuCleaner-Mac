@@ -19,8 +19,8 @@ public struct HomeChannelView: View {
         scanner.isScanningJunk || scanner.isScanningLeftovers || scanner.isScanningTrash
     }
 
-    private var totalReclaimableBytes: Int64 {
-        scanner.selectedJunkBytes + scanner.totalLeftoversBytes + scanner.totalTrashBytes
+    private var candidateMeasuredBytes: Int64 {
+        scanner.storageReport.candidateMeasuredBytes
     }
 
     public var body: some View {
@@ -28,7 +28,7 @@ public struct HomeChannelView: View {
             VStack(alignment: .leading, spacing: 20) {
                 ChannelHeaderView(
                     channel: .home,
-                    trailingBadgeText: ByteFormatter.string(from: totalReclaimableBytes),
+                    trailingBadgeText: scanner.isScanningJunk ? "Analisando..." : ByteFormatter.string(from: candidateMeasuredBytes) + " medidos",
                     actionTitle: isScanningAny ? "Escaneando..." : "Escanear Mac",
                     isLoading: isScanningAny,
                     onAction: {
@@ -37,6 +37,8 @@ public struct HomeChannelView: View {
                         }
                     }
                 )
+
+                CleanupOverviewView(scanner: scanner)
 
                 // Vigia da Lixeira Live Banner on Home
                 ForEach(scanner.trashedAppAlerts) { alert in
@@ -105,7 +107,7 @@ public struct HomeChannelView: View {
                                         .foregroundStyle(.blue)
                                 }
                                 if scanner.totalLifetimeFreedBytes > 0 {
-                                    Text("Já liberado: \(ByteFormatter.string(from: scanner.totalLifetimeFreedBytes))")
+                                    Text("Itens processados: \(ByteFormatter.string(from: scanner.totalLifetimeFreedBytes))")
                                         .font(.system(size: 11, weight: .semibold, design: .monospaced))
                                         .padding(.horizontal, 8)
                                         .padding(.vertical, 3)
@@ -114,7 +116,7 @@ public struct HomeChannelView: View {
                                 }
                             }
 
-                            Text("Escanear só lê: nada sai do lugar até você clicar em Limpar. Todo arquivo removido vai para a Lixeira do macOS antes.")
+                            Text("Escanear só lê: nada sai do lugar até você clicar em Limpar. A Lixeira é o destino padrão; exclusão permanente exige confirmação.")
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
 
@@ -148,11 +150,9 @@ public struct HomeChannelView: View {
                         if scanner.selectedJunkBytes > 0 {
                             VStack(alignment: .trailing, spacing: 8) {
                                 Button {
-                                    Task {
-                                        _ = await scanner.cleanSelectedJunk()
-                                    }
+                                    selectedChannel = .systemJunk
                                 } label: {
-                                    Label("Limpar \(ByteFormatter.string(from: scanner.selectedJunkBytes))", systemImage: "sparkles")
+                                    Label("Revisar limpeza", systemImage: "checklist")
                                         .fontWeight(.semibold)
                                         .padding(.horizontal, 14)
                                         .padding(.vertical, 8)
@@ -160,7 +160,7 @@ public struct HomeChannelView: View {
                                 .buttonStyle(.borderedProminent)
                                 .tint(.orange)
 
-                                Text("Envia caches e logs para a Lixeira")
+                                Text("Revise os itens e escolha o destino")
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
                             }
@@ -168,13 +168,32 @@ public struct HomeChannelView: View {
                     }
                 }
 
+                Button {
+                    selectedChannel = .developerStorage
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "externaldrive.connected.to.line.below").font(.title2)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Chrome, Docker, Xcode e Android").font(.headline)
+                            Text("Ver builds, imagens, volumes, SDKs, emuladores e dados preservados")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                    }
+                    .padding(16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.cyan.opacity(0.10), in: RoundedRectangle(cornerRadius: 14))
+                }
+                .buttonStyle(.plain)
+
                 // Three Smart Pillars: System Junk, Leftovers, Trash
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
                     SmartPillarCard(
                         code: "01",
-                        title: "Lixo do Sistema",
+                        title: "Arquivos e caches",
                         subtitle: "\(scanner.junkItems.count) locais encontrados",
-                        amountText: ByteFormatter.string(from: scanner.totalJunkBytes),
+                        amountText: scanner.lastScanDurationSeconds == nil ? "Não analisado" : ByteFormatter.string(from: scanner.totalJunkBytes),
                         symbol: "internaldrive.trianglebadge.exclamationmark",
                         color: .orange,
                         buttonLabel: "Revisar Lixo"
@@ -185,8 +204,8 @@ public struct HomeChannelView: View {
                     SmartPillarCard(
                         code: "05",
                         title: "Restos de Apps",
-                        subtitle: "\(scanner.leftoverGroups.count) apps órfãos na Library",
-                        amountText: ByteFormatter.string(from: scanner.totalLeftoversBytes),
+                        subtitle: scanner.installedApps.isEmpty ? "Análise sob demanda" : "\(scanner.leftoverGroups.count) apps órfãos na Library",
+                        amountText: scanner.installedApps.isEmpty ? "Não analisado" : ByteFormatter.string(from: scanner.totalLeftoversBytes),
                         symbol: "puzzlepiece.extension.fill",
                         color: .indigo,
                         buttonLabel: "Revisar Restos"
@@ -197,8 +216,8 @@ public struct HomeChannelView: View {
                     SmartPillarCard(
                         code: "06",
                         title: "Na Lixeira",
-                        subtitle: "\(scanner.trashItems.count) itens aguardando",
-                        amountText: ByteFormatter.string(from: scanner.totalTrashBytes),
+                        subtitle: scanner.hasScannedTrash ? "\(scanner.trashItems.count) itens aguardando" : "Análise sob demanda",
+                        amountText: scanner.hasScannedTrash ? ByteFormatter.string(from: scanner.totalTrashBytes) : "Não analisado",
                         symbol: "trash.fill",
                         color: .pink,
                         buttonLabel: "Abrir Lixeira"
@@ -206,6 +225,9 @@ public struct HomeChannelView: View {
                         selectedChannel = .trash
                     }
                 }
+
+                StorageGrowthView(scanner: scanner)
+                StorageReportView(report: scanner.storageReport)
 
                 // Quick Navigation Grid for remaining channels
                 Text("Ferramentas de Profundidade")

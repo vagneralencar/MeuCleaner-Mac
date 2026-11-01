@@ -115,7 +115,7 @@ final class MeuCleanerTests: XCTestCase {
             sizeBytes: 100_000_000,
             lastModified: fortyDaysAgo
         )
-        XCTAssertTrue(oldNodeModules.isSelected, "node_modules inativo há > 30 dias deve vir pré-marcado")
+        XCTAssertFalse(oldNodeModules.isSelected, "Idade não comprova que um artefato está sem uso")
 
         let aiModel = DevArtifactItem(
             url: URL(fileURLWithPath: "/tmp/.ollama/models"),

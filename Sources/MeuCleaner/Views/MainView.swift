@@ -49,7 +49,7 @@ public struct MainView: View {
                                 .background(Color.cyan.opacity(0.2), in: Capsule())
                                 .foregroundStyle(.cyan)
                         }
-                        Text("macOS Native Cleaner")
+                        Text("v" + (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "desenvolvimento"))
                             .font(.system(size: 10, weight: .medium))
                             .foregroundStyle(.secondary)
                     }
@@ -186,7 +186,7 @@ public struct MainView: View {
                                 selectedChannel: $selectedChannel
                             )
                         case .systemJunk:
-                            SystemJunkChannelView(scanner: scanner)
+                            SystemJunkChannelView(scanner: scanner, openEnvironments: { selectedChannel = .developerStorage })
                         case .spaceLens:
                             SpaceLensChannelView(scanner: scanner)
                         case .largeAndOld:
@@ -205,6 +205,8 @@ public struct MainView: View {
                             StartupItemsChannelView(scanner: scanner)
                         case .duplicates:
                             DuplicatesChannelView(scanner: scanner)
+                        case .developerStorage:
+                            DeveloperStorageChannelView(scanner: scanner, reviewCaches: { selectedChannel = .systemJunk })
                         }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -259,12 +261,17 @@ public struct MainView: View {
                 }
             }
         }
+        .sheet(item: $scanner.cleanupRequest) { request in
+            CleanupReviewSheet(scanner: scanner, request: request)
+        }
+        .task {
+            if scanner.junkItems.isEmpty && !scanner.isScanningJunk {
+                await scanner.runSmartScan()
+            }
+        }
         .task {
             if updater.autoCheckOnLaunch {
                 await updater.checkForUpdates(silent: true)
-            }
-            if scanner.junkItems.isEmpty && !scanner.isScanningJunk {
-                await scanner.runSmartScan()
             }
         }
     }

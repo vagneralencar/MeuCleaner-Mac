@@ -88,12 +88,12 @@ public struct SettingsView: View {
                 Label("Geral & Segurança", systemImage: "gearshape.fill")
             }
 
-            // Tab 2: Lifetime Cleanup History
+            // Historical figures describe processed items, not guaranteed physical space gains.
             VStack(alignment: .leading, spacing: 16) {
                 GlassCard(padding: 16, cornerRadius: 14) {
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("ESPAÇO TOTAL LIBERADO NESTE MAC")
+                            Text("TAMANHO DOS ITENS PROCESSADOS")
                                 .font(.system(size: 10, weight: .bold, design: .monospaced))
                                 .foregroundStyle(.secondary)
                             Text(ByteFormatter.string(from: scanner.totalLifetimeFreedBytes))
@@ -106,6 +106,9 @@ public struct SettingsView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+
+                Text("Inclui itens enviados à Lixeira. Tamanhos históricos não equivalem ao espaço livre ganho, especialmente com cópias APFS.")
+                    .font(.caption).foregroundStyle(.secondary)
 
                 if scanner.cleanupHistory.isEmpty {
                     Spacer()
@@ -126,7 +129,7 @@ public struct SettingsView: View {
                                     .foregroundStyle(.secondary)
                             }
                             Spacer()
-                            Text("+\(ByteFormatter.string(from: record.freedBytes))")
+                            Text(ByteFormatter.string(from: record.freedBytes))
                                 .font(.system(.subheadline, design: .monospaced).weight(.bold))
                                 .foregroundStyle(.green)
                         }

@@ -51,15 +51,15 @@ public struct DevAndAIChannelView: View {
                 Spacer()
 
                 Button {
-                    Task { await scanner.purgeUnavailableXcodeSimulators() }
+                    Task { await scanner.inspectXcodeSimulators() }
                 } label: {
-                    Label("Limpar Simuladores Xcode", systemImage: "iphone.slash")
+                    Label("Analisar Simuladores", systemImage: "iphone.slash")
                         .font(.caption.weight(.semibold))
                 }
                 .buttonStyle(.bordered)
                 .tint(.mint)
                 .controlSize(.small)
-                .help("Executa 'xcrun simctl delete unavailable' para remover simuladores antigos")
+                .help("Analisa o espaço dos simuladores sem apagar dados de testes")
             }
 
             if scanner.isScanningDevArtifacts {
@@ -100,6 +100,8 @@ public struct DevAndAIChannelView: View {
                                     ))
                                     .toggleStyle(.checkbox)
                                     .labelsHidden()
+                                    .disabled((try? SafetyGuard.validateCanMoveToTrash(item.url)) == nil)
+                                    .help("Projetos e worktrees são preservados, inclusive arquivos ignorados.")
 
                                     Image(systemName: item.category.symbol)
                                         .font(.system(size: 16, weight: .semibold))
@@ -109,7 +111,7 @@ public struct DevAndAIChannelView: View {
 
                                     VStack(alignment: .leading, spacing: 2) {
                                         HStack(spacing: 8) {
-                                            Text(item.projectName)
+                                            Text(item.projectName + ((try? SafetyGuard.validateCanMoveToTrash(item.url)) == nil ? " · Preservado" : ""))
                                                 .font(.subheadline.weight(.bold))
 
                                             Text(item.artifactFolderName)

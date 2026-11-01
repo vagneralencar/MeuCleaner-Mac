@@ -6,6 +6,7 @@ public enum SafetyViolationError: LocalizedError {
     case protectedSecurityCredentials(String)
     case outsideCurrentUserHome(String)
     case selfApplicationProtected(String)
+    case unsafeRemoval(String)
 
     public var errorDescription: String? {
         switch self {
@@ -17,6 +18,8 @@ public enum SafetyViolationError: LocalizedError {
             return "Arquivo de segurança protegido (Chaves SSH, GPG, tokens AWS/Cloud ou variáveis de ambiente): \(path)"
         case .outsideCurrentUserHome(let path):
             return "Não é permitido alterar pastas de outros usuários: \(path)"
+        case .unsafeRemoval(let reason):
+            return reason
         case .selfApplicationProtected(let path):
             return "O MeuCleaner não remove a si mesmo: \(path)"
         }
@@ -60,7 +63,19 @@ public struct SafetyGuard {
             "\(home)/.azure",
             "\(home)/.config/gcloud",
             "\(home)/.kube",
-            "\(home)/.password-store"
+            "\(home)/.password-store",
+            "\(home)/Library/Containers/com.docker.docker",
+            "\(home)/Library/Developer/CoreSimulator/Devices",
+            "\(home)/Library/Developer/Xcode/Archives",
+            "\(home)/Library/Application Support/Claude/vm_bundles",
+            "\(home)/Library/Application Support/com.docker.install",
+            "\(home)/.android/avd",
+            "\(home)/.codex/worktrees",
+            "\(home)/dev",
+            "\(home)/Developer",
+            "\(home)/Projects",
+            "\(home)/Code",
+            "\(home)/Workspace"
         ]
     }
 
@@ -102,7 +117,7 @@ public struct SafetyGuard {
 
         // Check for sensitive credential and environment files
         let fileName = url.lastPathComponent.lowercased()
-        if protectedFileNames.contains(fileName) || fileName.hasPrefix(".env.") {
+        if protectedFileNames.contains(fileName) || fileName.hasPrefix(".env.") || rawStandardized.pathComponents.contains(where: { StoragePaths.sensitiveName($0) }) {
             throw SafetyViolationError.protectedSecurityCredentials(rawPath)
         }
 
@@ -128,7 +143,7 @@ public struct SafetyGuard {
             // 3. Allow /Applications/<SpecificApp>.app for the Uninstaller, otherwise require user's home folder
             let isThirdPartyAppInApplications = path.hasPrefix("/Applications/") && path.hasSuffix(".app")
             let homePath = homeDirectoryURL.path
-            if !isThirdPartyAppInApplications {
+            if !isThirdPartyAppInApplications && !ChromeClonePolicy.isValid(rawStandardized) {
                 if path == homePath || !path.hasPrefix(homePath + "/") {
                     throw SafetyViolationError.outsideCurrentUserHome(path)
                 }
@@ -136,17 +151,39 @@ public struct SafetyGuard {
 
             // 4. Protect critical user directories (Documents, Keychains, Mail, Messages, Photos Library, iCloud, SSH, AWS, etc.)
             for protectedPath in protectedUserPaths {
-                if path == protectedPath || path.hasPrefix(protectedPath + "/") {
+                if StoragePaths.contains(protectedPath, path) || StoragePaths.contains(path, protectedPath) {
                     throw SafetyViolationError.protectedUserDataPath(path)
                 }
             }
+        }
+        if let reason = ToolVersionStore.blocker(for: rawStandardized) {
+            throw SafetyViolationError.unsafeRemoval(reason)
+        }
+        if let repository = StoragePaths.repositoryAncestor(of: rawStandardized) {
+            throw SafetyViolationError.unsafeRemoval("Projeto/worktree preservado: \(repository.path)")
         }
     }
 
     /// Safely removes an item using the chosen `RemovalMode` after passing `SafetyGuard` validation.
     @discardableResult
-    public static func remove(_ url: URL, mode: RemovalMode = .trash) throws -> URL? {
+    public static func remove(_ url: URL, mode: RemovalMode = .trash, expectedIdentity: FileIdentity? = nil) throws -> URL? {
         try validateCanMoveToTrash(url)
+        if let expectedIdentity, FileIdentity.read(url) != expectedIdentity {
+            throw SafetyViolationError.unsafeRemoval("O item mudou desde a varredura. Analise novamente: \(url.path)")
+        }
+        let measured = StorageMeter.measure(url)
+        guard measured.complete && !measured.containsProtectedContent else {
+            throw SafetyViolationError.unsafeRemoval("Conteúdo protegido ou leitura incompleta: \(url.path)")
+        }
+        let usage = FileUsageSnapshot.capture()
+        if let blocker = usage.blocker(for: url) {
+            throw SafetyViolationError.unsafeRemoval("\(blocker) \(url.path)")
+        }
+        // Recheck path identity and symlink resolution immediately before the filesystem mutation.
+        try validateCanMoveToTrash(url)
+        if let expectedIdentity, FileIdentity.read(url) != expectedIdentity {
+            throw SafetyViolationError.unsafeRemoval("Item substituído durante a verificação: \(url.path)")
+        }
         switch mode {
         case .trash:
             var resultingURL: NSURL?

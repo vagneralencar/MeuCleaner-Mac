@@ -9,6 +9,12 @@ public final class DiskScannerService: ObservableObject {
     // Channel 00 & 01: System Junk
     @Published public var junkItems: [JunkItem] = []
     @Published public var isScanningJunk: Bool = false
+    @Published var storageReport = StorageReport()
+    @Published var cleanupRequest: CleanupRequest?
+    @Published var cleanupProgress = ""
+    @Published var storageGrowth: [StorageGrowth] = []
+    @Published var previousScanDate: Date?
+    @Published public var isCleaningJunk = false
     @Published public var lastScanDurationSeconds: Double?
 
     // Channel 02: Space Lens
@@ -32,6 +38,7 @@ public final class DiskScannerService: ObservableObject {
     // Channel 06: Trash
     @Published public var trashItems: [TrashItem] = []
     @Published public var isScanningTrash: Bool = false
+    @Published var hasScannedTrash = false
 
     // Channel 07: App Updater
     @Published public var updatableApps: [UpdatableApp] = []
@@ -105,7 +112,7 @@ public final class DiskScannerService: ObservableObject {
     }
 
     public var selectedJunkBytes: Int64 {
-        junkItems.filter(\.isSelected).reduce(0) { $0 + $1.sizeBytes }
+        junkItems.filter { $0.isSelected && $0.canClean }.reduce(0) { $0 + $1.sizeBytes }
     }
 
     public var totalLeftoversBytes: Int64 {
@@ -127,37 +134,35 @@ public final class DiskScannerService: ObservableObject {
     // MARK: - Smart Scan (Home + Junk + Leftovers + Trash)
 
     public func runSmartScan() async {
+        guard !isScanningJunk && !isCleaningJunk else { return }
         let start = CFAbsoluteTimeGetCurrent()
         isScanningJunk = true
-        isScanningLeftovers = true
-        isScanningTrash = true
         refreshFullDiskAccessStatus()
-
-        async let junkTask = Self.scanSystemJunkOffMain()
-        async let trashTask = Self.scanTrashOffMain()
-        async let appsAndLeftoversTask = Self.scanAppsAndLeftoversOffMain()
-
-        let (foundJunk, foundTrash, (foundApps, foundLeftovers)) = await (junkTask, trashTask, appsAndLeftoversTask)
-
-        self.junkItems = foundJunk
-        self.trashItems = foundTrash
-        self.installedApps = foundApps
-        self.leftoverGroups = foundLeftovers
-
+        let report = await Task.detached(priority: .utility) { IntelligentStorageScanner.scan() }.value
+        applyStorageReport(report)
         isScanningJunk = false
-        isScanningLeftovers = false
-        isScanningTrash = false
         lastScanDurationSeconds = max(0.1, CFAbsoluteTimeGetCurrent() - start)
-        await checkTrashedAppsForLeftovers()
+        // Trash and app leftovers are independent on-demand channels. Their permission
+        // prompts must not prevent publishing the read-only storage diagnosis.
+    }
+
+    private func applyStorageReport(_ report: StorageReport) {
+        storageReport = report
+        junkItems = report.junkItems
+        let history = StorageHistory.update(report)
+        previousScanDate = history.0
+        storageGrowth = history.1
+        if let warning = history.2 { storageReport.issues.append(warning) }
     }
 
     // MARK: - Channel 01: System Junk (CleanerCore.JunkRule.defaults)
 
     public func scanSystemJunk() async {
+        guard !isScanningJunk && !isCleaningJunk else { return }
         let start = CFAbsoluteTimeGetCurrent()
         isScanningJunk = true
-        let items = await Self.scanSystemJunkOffMain()
-        junkItems = items
+        let result = await Task.detached(priority: .utility) { IntelligentStorageScanner.scan() }.value
+        applyStorageReport(result)
         isScanningJunk = false
         lastScanDurationSeconds = max(0.1, CFAbsoluteTimeGetCurrent() - start)
     }
@@ -167,42 +172,41 @@ public final class DiskScannerService: ObservableObject {
     }
 
     public func cleanSelectedJunk() async -> Int64 {
-        let selected = junkItems.filter(\.isSelected)
+        guard !isCleaningJunk && !isScanningJunk else { return 0 }
+        isCleaningJunk = true
+        defer { isCleaningJunk = false }
+        let selected = junkItems.filter { $0.isSelected && $0.canClean }
         let mode = removalMode
-        var cleanedBytes: Int64 = 0
-        var removedIDs = Set<UUID>()
-        var newReceipts: [TrashReceipt] = []
-
-        for item in selected {
-            do {
-                if let trashedURL = try SafetyGuard.remove(item.url, mode: mode) {
-                    newReceipts.append(
-                        TrashReceipt(
-                            originalURL: item.url,
-                            trashURL: trashedURL,
-                            sizeBytes: item.sizeBytes,
-                            channelTitle: "Lixo do Sistema"
-                        )
-                    )
-                }
-                cleanedBytes += item.sizeBytes
-                removedIDs.insert(item.id)
-            } catch {
-                continue
+        let outcome = await Task.detached(priority: .utility) {
+            var removed = Set<UUID>()
+            var receipts: [TrashReceipt] = []
+            var errors: [String] = []
+            var processed: Int64 = 0
+            for item in selected {
+                do {
+                    guard let identity = item.identity else {
+                        throw SafetyViolationError.unsafeRemoval("Identidade do arquivo não verificada; analise novamente.")
+                    }
+                    if let destination = try SafetyGuard.remove(item.url, mode: mode, expectedIdentity: identity) {
+                        receipts.append(TrashReceipt(originalURL: item.url, trashURL: destination, sizeBytes: item.sizeBytes, channelTitle: "Lixo do Sistema"))
+                    }
+                    removed.insert(item.id)
+                    processed += item.sizeBytes
+                } catch { errors.append("\(item.name): \(error.localizedDescription)") }
             }
-        }
-
-        if mode == .trash && !newReceipts.isEmpty {
-            lastTrashReceipts = newReceipts
-        }
-
-        junkItems.removeAll { removedIDs.contains($0.id) }
-        recordCleanupHistory(channelTitle: "Lixo do Sistema", freedBytes: cleanedBytes, itemsCount: removedIDs.count)
+            return (removed, receipts, errors, processed)
+        }.value
+        junkItems.removeAll { outcome.0.contains($0.id) }
+        storageReport.findings.removeAll { finding in selected.contains { outcome.0.contains($0.id) && $0.url == finding.url } }
+        if mode == .trash && !outcome.1.isEmpty { lastTrashReceipts = outcome.1 }
+        recordCleanupHistory(channelTitle: "Lixo do Sistema", freedBytes: outcome.3, itemsCount: outcome.0.count)
         await scanTrash()
-        lastStatusMessage = mode == .trash
-            ? "Prontinho! \(ByteFormatter.string(from: cleanedBytes)) foram para a Lixeira."
-            : "Prontinho! \(ByteFormatter.string(from: cleanedBytes)) apagados permanentemente."
-        return cleanedBytes
+        let action = mode == .trash ? "movidos para a Lixeira (o espaço só é liberado ao esvaziá-la)" : "removidos"
+        lastStatusMessage = "\(outcome.0.count) itens \(action). Tamanho medido: \(ByteFormatter.string(from: outcome.3)); não equivale ao ganho físico em APFS."
+        if !outcome.2.isEmpty {
+            lastStatusMessage! += " \(outcome.2.count) itens preservados: \(outcome.2.prefix(3).joined(separator: "; "))"
+        }
+        return outcome.3
     }
 
     public func undoLastCleanup() async {
@@ -210,9 +214,12 @@ public final class DiskScannerService: ObservableObject {
         let fm = FileManager.default
         var restoredCount = 0
         var restoredBytes: Int64 = 0
+        var pending: [TrashReceipt] = []
 
         for receipt in lastTrashReceipts {
             if fm.fileExists(atPath: receipt.trashURL.path) {
+                guard receipt.originalURL.standardizedFileURL == receipt.originalURL.resolvingSymlinksInPath(),
+                      !fm.fileExists(atPath: receipt.originalURL.path) else { pending.append(receipt); continue }
                 let parentDir = receipt.originalURL.deletingLastPathComponent()
                 try? fm.createDirectory(at: parentDir, withIntermediateDirectories: true)
                 do {
@@ -220,174 +227,14 @@ public final class DiskScannerService: ObservableObject {
                     restoredCount += 1
                     restoredBytes += receipt.sizeBytes
                 } catch {
-                    // Item could not be moved or destination already occupied
+                    pending.append(receipt)
                 }
             }
         }
 
-        lastTrashReceipts.removeAll()
+        lastTrashReceipts = pending
         await scanTrash()
-        lastStatusMessage = "\(restoredCount) item(ns) restaurados com sucesso para a pasta original (\(ByteFormatter.string(from: restoredBytes)))."
-    }
-
-    private nonisolated static func scanSystemJunkOffMain() async -> [JunkItem] {
-        let fm = FileManager.default
-        let home = fm.homeDirectoryForCurrentUser
-        let runningBundleIDs = Set(
-            await MainActor.run {
-                NSWorkspace.shared.runningApplications.compactMap { $0.bundleIdentifier?.lowercased() }
-            }
-        )
-        let runningNames = Set(
-            await MainActor.run {
-                NSWorkspace.shared.runningApplications.compactMap { $0.localizedName?.lowercased() }
-            }
-        )
-
-        var results: [JunkItem] = []
-
-        // 1. User Caches (~/Library/Caches), skipping JunkRule.protectedCaches
-        let cachesURL = home.appendingPathComponent("Library/Caches")
-        if let children = try? fm.contentsOfDirectory(at: cachesURL, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]) {
-            for child in children {
-                let name = child.lastPathComponent
-                let lower = name.lowercased()
-                if SafetyGuard.protectedCacheIdentifiers.contains(lower) ||
-                   SafetyGuard.protectedCacheIdentifiers.contains(where: { lower.contains($0) }) ||
-                   lower.hasPrefix("com.apple.") {
-                    continue
-                }
-                let size = directoryOrFileSize(at: child, maxDepth: 4)
-                guard size > 64 * 1024 else { continue }
-                let isRunning = runningBundleIDs.contains(lower) || runningNames.contains(where: { $0.count >= 4 && lower.contains($0) })
-                results.append(
-                    JunkItem(
-                        url: child,
-                        name: name,
-                        category: .userCaches,
-                        sizeBytes: size,
-                        isRunningApp: isRunning
-                    )
-                )
-            }
-        }
-
-        // 2. User Logs (~/Library/Logs)
-        let logsURL = home.appendingPathComponent("Library/Logs")
-        if let children = try? fm.contentsOfDirectory(at: logsURL, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
-            for child in children {
-                let size = directoryOrFileSize(at: child, maxDepth: 4)
-                guard size > 16 * 1024 else { continue }
-                results.append(
-                    JunkItem(
-                        url: child,
-                        name: child.lastPathComponent,
-                        category: .userLogs,
-                        sizeBytes: size
-                    )
-                )
-            }
-        }
-
-        // 3. Xcode Junk (DerivedData, iOS/watchOS/macOS/visionOS DeviceSupport, CoreSimulator/Caches)
-        let xcodeTargets: [(String, String)] = [
-            ("Library/Developer/Xcode/DerivedData", "DerivedData"),
-            ("Library/Developer/Xcode/iOS DeviceSupport", "iOS DeviceSupport"),
-            ("Library/Developer/Xcode/watchOS DeviceSupport", "watchOS DeviceSupport"),
-            ("Library/Developer/Xcode/macOS DeviceSupport", "macOS DeviceSupport"),
-            ("Library/Developer/Xcode/visionOS DeviceSupport", "visionOS DeviceSupport"),
-            ("Library/Developer/CoreSimulator/Caches", "CoreSimulator Caches"),
-            ("Library/Caches/com.apple.dt.Xcode", "Xcode Cache")
-        ]
-        for (relPath, label) in xcodeTargets {
-            let url = home.appendingPathComponent(relPath)
-            if fm.fileExists(atPath: url.path) {
-                if let subdirs = try? fm.contentsOfDirectory(at: url, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
-                    for sub in subdirs {
-                        let size = directoryOrFileSize(at: sub, maxDepth: 4)
-                        guard size > 128 * 1024 else { continue }
-                        results.append(
-                            JunkItem(
-                                url: sub,
-                                name: "\(label) · \(sub.lastPathComponent)",
-                                category: .xcode,
-                                sizeBytes: size
-                            )
-                        )
-                    }
-                }
-            }
-        }
-
-        // 4. Developer Caches (npm, pnpm, bun, Cargo, Gradle)
-        let devCacheTargets: [(String, String)] = [
-            (".npm/_cacache", "npm Cache (~/.npm/_cacache)"),
-            ("Library/pnpm/store", "pnpm Store (~/Library/pnpm/store)"),
-            (".pnpm-store", "pnpm Store (~/.pnpm-store)"),
-            (".bun/install/cache", "Bun Cache (~/.bun/install/cache)"),
-            (".cargo/registry/cache", "Cargo Registry Cache (~/.cargo/registry/cache)"),
-            (".gradle/caches", "Gradle Caches (~/.gradle/caches)")
-        ]
-        for (relPath, label) in devCacheTargets {
-            let url = home.appendingPathComponent(relPath)
-            if fm.fileExists(atPath: url.path) {
-                let size = directoryOrFileSize(at: url, maxDepth: 5)
-                if size > 128 * 1024 {
-                    results.append(
-                        JunkItem(
-                            url: url,
-                            name: label,
-                            category: .devCaches,
-                            sizeBytes: size
-                        )
-                    )
-                }
-            }
-        }
-
-        // 5. ~/.cache (dotCache — unchecked by default per CleanUai JunkRule!)
-        let dotCacheURL = home.appendingPathComponent(".cache")
-        if fm.fileExists(atPath: dotCacheURL.path),
-           let children = try? fm.contentsOfDirectory(at: dotCacheURL, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
-            for child in children {
-                let size = directoryOrFileSize(at: child, maxDepth: 4)
-                guard size > 128 * 1024 else { continue }
-                results.append(
-                    JunkItem(
-                        url: child,
-                        name: "~/.cache/\(child.lastPathComponent)",
-                        category: .dotCache,
-                        sizeBytes: size,
-                        note: "Revisar",
-                        isSelected: false
-                    )
-                )
-            }
-        }
-
-        // 6. Incomplete Downloads in ~/Downloads
-        let downloadsURL = home.appendingPathComponent("Downloads")
-        let incompleteExtensions: Set<String> = ["part", "crdownload", "download", "tmp"]
-        if let items = try? fm.contentsOfDirectory(at: downloadsURL, includingPropertiesForKeys: [.fileAllocatedSizeKey], options: [.skipsHiddenFiles]) {
-            for item in items {
-                let ext = item.pathExtension.lowercased()
-                if incompleteExtensions.contains(ext) {
-                    let size = directoryOrFileSize(at: item, maxDepth: 2)
-                    if size > 0 {
-                        results.append(
-                            JunkItem(
-                                url: item,
-                                name: item.lastPathComponent,
-                                category: .incompleteDownloads,
-                                sizeBytes: size
-                            )
-                        )
-                    }
-                }
-            }
-        }
-
-        return results.sorted { $0.sizeBytes > $1.sizeBytes }
+        lastStatusMessage = "\(restoredCount) item(ns) restaurados com sucesso para a pasta original (\(ByteFormatter.string(from: restoredBytes))). \(pending.count) restaurações pendentes, sem sobrescrever arquivos existentes."
     }
 
     // MARK: - Channel 02: Space Lens
@@ -605,9 +452,8 @@ public final class DiskScannerService: ObservableObject {
         var totalRemoved: Int64 = 0
         do {
             for related in app.relatedFiles where related.isSelected {
-                if (try? SafetyGuard.remove(related.url, mode: removalMode)) != nil || removalMode == .permanent {
-                    totalRemoved += related.sizeBytes
-                }
+                _ = try SafetyGuard.remove(related.url, mode: removalMode)
+                totalRemoved += related.sizeBytes
             }
             _ = try SafetyGuard.remove(app.bundleURL, mode: removalMode)
             totalRemoved += app.appSizeBytes
@@ -854,35 +700,38 @@ public final class DiskScannerService: ObservableObject {
 
     public func scanTrash() async {
         isScanningTrash = true
-        let items = await Self.scanTrashOffMain()
-        trashItems = items
+        let result = await Self.scanTrashOffMain()
+        trashItems = result.items
+        hasScannedTrash = result.issue == nil
         isScanningTrash = false
+        if let issue = result.issue {
+            lastStatusMessage = issue
+            return
+        }
         await checkTrashedAppsForLeftovers()
     }
 
     public func emptyTrashPermanently() async {
-        let trashRoot = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".Trash").standardizedFileURL
-        let total = totalTrashBytes
-        for item in trashItems {
-            let itemPath = item.url.standardizedFileURL.path
-            if itemPath.hasPrefix(trashRoot.path + "/") {
-                try? FileManager.default.removeItem(at: item.url)
+        let items = trashItems
+        let outcome = await Task.detached(priority: .utility) {
+            var removed = 0
+            var blocked = 0
+            for item in items {
+                do { _ = try SafetyGuard.remove(item.url, mode: .permanent); removed += 1 }
+                catch { blocked += 1 }
             }
-        }
-        trashItems.removeAll()
-        lastStatusMessage = "Lixeira esvaziada permanentemente (\(ByteFormatter.string(from: total)) liberados)."
+            return (removed, blocked)
+        }.value
+        await scanTrash()
+        lastStatusMessage = "\(outcome.0) itens removidos; \(outcome.1) preservados por uso, conteúdo protegido ou erro de leitura."
     }
 
-    private nonisolated static func scanTrashOffMain() async -> [TrashItem] {
+    private nonisolated static func scanTrashOffMain() async -> (items: [TrashItem], issue: String?) {
         let fm = FileManager.default
         let trashURL = fm.homeDirectoryForCurrentUser.appendingPathComponent(".Trash")
-        guard let contents = try? fm.contentsOfDirectory(
-            at: trashURL,
-            includingPropertiesForKeys: [.isDirectoryKey, .addedToDirectoryDateKey, .contentModificationDateKey],
-            options: [.skipsHiddenFiles]
-        ) else {
-            return []
-        }
+        let listing = StorageDirectory.list(trashURL)
+        if let issue = listing.issue { return ([], issue) }
+        let contents = listing.urls
 
         var results: [TrashItem] = []
         for url in contents {
@@ -898,7 +747,7 @@ public final class DiskScannerService: ObservableObject {
                 )
             )
         }
-        return results.sorted { $0.sizeBytes > $1.sizeBytes }
+        return (results.sorted { $0.sizeBytes > $1.sizeBytes }, nil)
     }
 
     // MARK: - Channel 07: App Updater (Homebrew + Sparkle Appcast XML + App Store iTunes Lookup)
@@ -1025,41 +874,10 @@ public final class DiskScannerService: ObservableObject {
     // MARK: - Fast File/Directory Size Calculation
 
     public nonisolated static func directoryOrFileSize(at url: URL, maxDepth: Int) -> Int64 {
-        let fm = FileManager.default
-        let resourceKeys: Set<URLResourceKey> = [
-            .isRegularFileKey,
-            .isDirectoryKey,
-            .totalFileAllocatedSizeKey,
-            .fileAllocatedSizeKey,
-            .fileSizeKey
-        ]
-
-        if let values = try? url.resourceValues(forKeys: resourceKeys),
-           values.isDirectory != true {
-            return Int64(values.totalFileAllocatedSize ?? values.fileAllocatedSize ?? values.fileSize ?? 0)
-        }
-
-        guard let enumerator = fm.enumerator(
-            at: url,
-            includingPropertiesForKeys: Array(resourceKeys),
-            options: [.skipsHiddenFiles]
-        ) else {
-            return 0
-        }
-
-        var total: Int64 = 0
-        while let fileURL = enumerator.nextObject() as? URL {
-            if enumerator.level > maxDepth {
-                enumerator.skipDescendants()
-                continue
-            }
-            if let values = try? fileURL.resourceValues(forKeys: resourceKeys),
-               values.isRegularFile == true {
-                total += Int64(values.totalFileAllocatedSize ?? values.fileAllocatedSize ?? values.fileSize ?? 0)
-            }
-        }
-        return total
+        // maxDepth kept for source compatibility. Size must include hidden and deep files.
+        StorageMeter.measure(url).allocatedBytes
     }
+
 }
 
 // MARK: - Lightweight Sparkle Appcast XML Parser (CleanerCore.AppcastParserDelegate)

@@ -12,6 +12,7 @@ public enum CleanerChannel: Int, CaseIterable, Identifiable, Hashable {
     case devAndAI = 8
     case startupItems = 9
     case duplicates = 10
+    case developerStorage = 11
 
     public var id: Int { rawValue }
 
@@ -32,6 +33,7 @@ public enum CleanerChannel: Int, CaseIterable, Identifiable, Hashable {
         case .devAndAI: return "Dev & IA Cleaner"
         case .startupItems: return "Inicialização & Daemons"
         case .duplicates: return "Arquivos Duplicados"
+        case .developerStorage: return "Revisar e limpar"
         }
     }
 
@@ -48,6 +50,7 @@ public enum CleanerChannel: Int, CaseIterable, Identifiable, Hashable {
         case .devAndAI: return "node_modules, .venv, target/build de projetos inativos e modelos de IA (Ollama/HF)"
         case .startupItems: return "Gerencie LaunchAgents e Daemons ocultos que iniciam junto com o Mac"
         case .duplicates: return "Caçador ultrarrápido de arquivos idênticos em 3 estágios (SHA-256)"
+        case .developerStorage: return "Chrome, Docker, Xcode, Android: veja o uso, revise e escolha o que remover"
         }
     }
 
@@ -64,6 +67,7 @@ public enum CleanerChannel: Int, CaseIterable, Identifiable, Hashable {
         case .devAndAI: return "cpu.fill"
         case .startupItems: return "bolt.horizontal.circle.fill"
         case .duplicates: return "doc.on.doc.fill"
+        case .developerStorage: return "externaldrive.connected.to.line.below"
         }
     }
 
@@ -80,6 +84,7 @@ public enum CleanerChannel: Int, CaseIterable, Identifiable, Hashable {
         case .devAndAI: return .mint
         case .startupItems: return .yellow
         case .duplicates: return .teal
+        case .developerStorage: return .cyan
         }
     }
 
@@ -96,6 +101,7 @@ public enum CleanerChannel: Int, CaseIterable, Identifiable, Hashable {
         case .devAndAI: return "8"
         case .startupItems: return "9"
         case .duplicates: return "d"
+        case .developerStorage: return "e"
         }
     }
 
